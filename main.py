@@ -12,7 +12,6 @@ from googleapiclient.http import MediaFileUpload
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 YT_TOKEN_JSON = os.environ.get("YT_TOKEN_JSON")
-YT_COOKIES = os.environ.get("YT_COOKIES")
 VIDEO_URL = os.environ.get("VIDEO_URL")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -21,31 +20,19 @@ os.makedirs("final_clips", exist_ok=True)
 def get_clean_url(url):
     match = re.search(r"(?:v=|/live/|youtu\.be/|/shorts/)([a-zA-Z0-9_-]{11})", url)
     if match:
-        domain = "www" + ".youtube" + ".com"
-        return "https://" + domain + "/watch?v=" + match.group(1)
+        return "https://www" + ".youtube" + ".com/watch?v=" + match.group(1)
     return url
 
 def download_audio_only(url):
-    print("1. Sirf Audio download ho rahi hai (Fast Mode)...")
+    print("1. Cloudflare WARP ke zariye Audio download ho rahi hai...")
     ydl_opts = {
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': 'audio.m4a',
-        'overwrites': True,
-        'extractor_args': {'youtube': {'player_client': ['android_vr', 'ios', 'tv_simply']}}
+        'overwrites': True
     }
-    try:
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        return "audio.m4a"
-    except Exception:
-        if YT_COOKIES:
-            with open("cookies.txt", "w", encoding="utf-8") as f:
-                f.write(YT_COOKIES)
-            ydl_opts['cookiefile'] = 'cookies.txt'
-        ydl_opts['extractor_args'] = {'youtube': {'player_client': ['web', 'mweb']}}
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        return "audio.m4a"
+    with YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    return "audio.m4a"
 def transcribe_audio(audio_path):
     print("2. Captions nikale ja rahe hain...")
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
@@ -108,10 +95,8 @@ if __name__ == "__main__":
         srt = f"c_{i}.srt"
         out = f"final_clips/clip_{i}.mp4"
         
-        # Poori 2GB video ke bajay sirf wahi 40-second ka hissa download karega
         subprocess.run([
             "yt-dlp", "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "--extractor-args", "youtube:player_client=android_vr,ios",
             "--download-sections", f"*{start}-{end}",
             "-o", raw_seg, clean_url
         ], check=True)
