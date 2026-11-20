@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import subprocess
 from yt_dlp import YoutubeDL
 from faster_whisper import WhisperModel
@@ -28,17 +29,22 @@ def get_clean_url(url):
         return "https://www" + ".youtube" + ".com/watch?v=" + match.group(1)
     return url
 
-def get_working_gemini_model():
+def get_all_flash_models():
     available = []
     for m in client.models.list():
         name = m.name.replace("models/", "")
-        if "flash" in name and "lite" not in name and "audio" not in name and "image" not in name:
+        if "flash" in name and "audio" not in name and "image" not in name and "tts" not in name:
             available.append(name)
-    print("   -> Available Flash Models:", available, flush=True)
-    for pref in ["gemini-3-flash-preview", "gemini-3.0-flash", "gemini-flash-latest", "gemini-2.5-flash-latest"]:
-        if pref in available:
-            return pref
-    return available if available else "gemini-flash-latest"
+    # Priority order: pehle stable/latest models, fir preview models
+    priority = [
+        "gemini-2.5-flash", "gemini-2.5-flash-latest", "gemini-flash-latest",
+        "gemini-2.5-flash-lite", "gemini-3-flash-preview", "gemini-3.0-flash"
+    ]
+    ordered = [p for p in priority if p in available]
+    for a in available:
+        if a not in ordered:
+            ordered.append(a)
+    return ordered if ordered else ["gemini-flash-latest"]
 
 def download_audio_only(url):
     print("1. Audio download ho rahi hai...", flush=True)
@@ -77,8 +83,8 @@ def transcribe_audio(audio_path):
     return "\n".join(transcript), words, sentences
 
 def get_best_3_clips(transcript_text, sentences):
-    model_name = get_working_gemini_model()
-    print(f"3. Gemini ({model_name}) 3 sabse best 30-second moments chun raha hai...", flush=True)
+    models_to_try = get_all_flash_models()
+    print("3. Available Gemini models:", models_to_try, flush=True)
     prompt = f"""
     Tum ek viral YouTube Shorts & Reels editor ho. Neeche di gayi stream transcript mein se
     EXACT 3 sabse best, funny, exciting ya shocking moments chuno.
@@ -96,13 +102,27 @@ def get_best_3_clips(transcript_text, sentences):
     Transcript:
     {transcript_text[:28000]}
     """
-    res = client.models.generate_content(
-        model=model_name,
-        contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type="application/json")
-    )
-    raw_clips = json.loads(res.text)[:3]
     
+    res_text = None
+    for m_name in models_to_try:
+        try:
+            print(f"   -> Try kar rahe hain model: {m_name}...", flush=True)
+            res = client.models.generate_content(
+                model=m_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json")
+            )
+            res_text = res.text
+            print(f"   -> Safalta! {m_name} ne response de diya.", flush=True)
+            break
+        except Exception as e:
+            print(f"   -> {m_name} busy/unavailable hai ({e}), agla model try kar rahe hain...", flush=True)
+            time.sleep(3)
+            
+    if not res_text:
+        raise RuntimeError("Sabhi Gemini models abhi busy hain, 1 minute baad dubara run karein.")
+        
+    raw_clips = json.loads(res_text)[:3]
     final_clips = []
     for c in raw_clips:
         approx_start = float(c['start'])
@@ -133,7 +153,7 @@ def create_srt(words, start, end, filename):
             chunk = c_words[i:i+3]
             if not chunk:
                 continue
-            s_t = format_time(chunk['start'] - start)
+            s_t = format_time(chunk[0]['start'] - start)
             e_t = format_time(chunk[-1]['end'] - start)
             txt = ' '.join(w['word'] for w in chunk).upper()
             f.write(f"{idx}\n{s_t} --> {e_t}\n{txt}\n\n")
@@ -182,3 +202,4 @@ if __name__ == "__main__":
         
         print(f"6.{i} Clip {i} YouTube par upload ho rahi hai...", flush=True)
         upload_to_youtube(out, c['title'], c['caption'])
+          
