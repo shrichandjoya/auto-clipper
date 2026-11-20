@@ -21,7 +21,8 @@ os.makedirs("final_clips", exist_ok=True)
 def get_clean_url(url):
     match = re.search(r"(?:v=|/live/|youtu\.be/|/shorts/)([a-zA-Z0-9_-]{11})", url)
     if match:
-        return "https://" + "://youtube.com" + "/watch?v=" + match.group(1)
+        domain = "www" + ".youtube" + ".com"
+        return "https://" + domain + "/watch?v=" + match.group(1)
     return url
 
 def download_audio_only(url):
