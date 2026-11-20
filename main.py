@@ -12,10 +12,15 @@ from googleapiclient.http import MediaFileUpload
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 YT_TOKEN_JSON = os.environ.get("YT_TOKEN_JSON")
+YT_COOKIES = os.environ.get("YT_COOKIES")
 VIDEO_URL = os.environ.get("VIDEO_URL")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 os.makedirs("final_clips", exist_ok=True)
+
+if YT_COOKIES:
+    with open("cookies.txt", "w", encoding="utf-8") as f:
+        f.write(YT_COOKIES)
 
 def get_clean_url(url):
     match = re.search(r"(?:v=|/live/|youtu\.be/|/shorts/)([a-zA-Z0-9_-]{11})", url)
@@ -24,12 +29,14 @@ def get_clean_url(url):
     return url
 
 def download_audio_only(url):
-    print("1. Cloudflare WARP ke zariye Audio download ho rahi hai...", flush=True)
+    print("1. Cloudflare WARP + Cookies ke zariye Audio download ho rahi hai...", flush=True)
     ydl_opts = {
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': 'audio.m4a',
         'overwrites': True
     }
+    if os.path.exists("cookies.txt"):
+        ydl_opts['cookiefile'] = 'cookies.txt'
     with YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
     return "audio.m4a"
@@ -133,11 +140,11 @@ if __name__ == "__main__":
     text, words, sentences = transcribe_audio(audio)
     clips = get_best_3_clips(text, sentences)
     
-    # Direct video stream URL nikal kar FFmpeg se sirf 30s seek karke kaatna (100x faster!)
     print("4. Direct stream link nikala ja raha hai...", flush=True)
-    stream_url = subprocess.check_output([
-        "yt-dlp", "-f", "best[height<=720][ext=mp4]/best[ext=mp4]/best", "-g", clean_url
-    ]).decode("utf-8").strip().splitlines()
+    cmd_url = ["yt-dlp", "-f", "best[height<=720][ext=mp4]/best[ext=mp4]/best", "-g", clean_url]
+    if os.path.exists("cookies.txt"):
+        cmd_url.extend(["--cookies", "cookies.txt"])
+    stream_url = subprocess.check_output(cmd_url).decode("utf-8").strip().splitlines()
     
     for i, c in enumerate(clips, 1):
         start, end = c['start'], c['end']
