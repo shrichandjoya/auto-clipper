@@ -21,7 +21,7 @@ os.makedirs("final_clips", exist_ok=True)
 
 if YT_COOKIES:
     with open("cookies.txt", "w", encoding="utf-8") as f:
-        f.write(YT_COOKIES)
+        f.write(YT_COOKIES.strip() + "\n")
 
 def get_clean_url(url):
     match = re.search(r"(?:v=|/live/|youtu\.be/|/shorts/)([a-zA-Z0-9_-]{11})", url)
@@ -35,7 +35,6 @@ def get_all_flash_models():
         name = m.name.replace("models/", "")
         if "flash" in name and "audio" not in name and "image" not in name and "tts" not in name:
             available.append(name)
-    # Priority order: pehle stable/latest models, fir preview models
     priority = [
         "gemini-2.5-flash", "gemini-2.5-flash-latest", "gemini-flash-latest",
         "gemini-2.5-flash-lite", "gemini-3-flash-preview", "gemini-3.0-flash"
@@ -48,17 +47,34 @@ def get_all_flash_models():
 
 def download_audio_only(url):
     print("1. Audio download ho rahi hai...", flush=True)
-    ydl_opts = {
+    # Pehle Incognito Cookies ke saath try karega
+    if os.path.exists("cookies.txt"):
+        try:
+            ydl_opts = {
+                'format': 'bestaudio[ext=m4a]/bestaudio/best',
+                'outtmpl': 'audio.m4a',
+                'overwrites': True,
+                'cookiefile': 'cookies.txt',
+                'quiet': True
+            }
+            with YoutubeDL(ydl_opts) as ydl:
+                ydl.download([url])
+            print("   -> Cookies ke saath audio download complete!", flush=True)
+            return "audio.m4a"
+        except Exception as e:
+            print("   -> Cookie try fail hua, bina cookie tv/android client try kar rahe hain...", flush=True)
+
+    # Fallback: Bina cookie ke tv/android client
+    ydl_opts_fb = {
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': 'audio.m4a',
         'overwrites': True,
+        'extractor_args': {'youtube': {'player_client': ['tv_simply', 'android_vr', 'ios']}},
         'quiet': True
     }
-    if os.path.exists("cookies.txt"):
-        ydl_opts['cookiefile'] = 'cookies.txt'
-    with YoutubeDL(ydl_opts) as ydl:
+    with YoutubeDL(ydl_opts_fb) as ydl:
         ydl.download([url])
-    print("   -> Audio download complete!", flush=True)
+    print("   -> Fallback client se audio download complete!", flush=True)
     return "audio.m4a"
 
 def transcribe_audio(audio_path):
@@ -153,7 +169,7 @@ def create_srt(words, start, end, filename):
             chunk = c_words[i:i+3]
             if not chunk:
                 continue
-            s_t = format_time(chunk[0]['start'] - start)
+            s_t = format_time(chunk['start'] - start)
             e_t = format_time(chunk[-1]['end'] - start)
             txt = ' '.join(w['word'] for w in chunk).upper()
             f.write(f"{idx}\n{s_t} --> {e_t}\n{txt}\n\n")
@@ -202,4 +218,3 @@ if __name__ == "__main__":
         
         print(f"6.{i} Clip {i} YouTube par upload ho rahi hai...", flush=True)
         upload_to_youtube(out, c['title'], c['caption'])
-          
