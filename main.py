@@ -13,15 +13,10 @@ from googleapiclient.http import MediaFileUpload
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 YT_TOKEN_JSON = os.environ.get("YT_TOKEN_JSON")
-YT_COOKIES = os.environ.get("YT_COOKIES")
 VIDEO_URL = os.environ.get("VIDEO_URL")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 os.makedirs("final_clips", exist_ok=True)
-
-if YT_COOKIES:
-    with open("cookies.txt", "w", encoding="utf-8") as f:
-        f.write(YT_COOKIES.strip() + "\n")
 
 def get_clean_url(url):
     match = re.search(r"(?:v=|/live/|youtu\.be/|/shorts/)([a-zA-Z0-9_-]{11})", url)
@@ -36,45 +31,27 @@ def get_all_flash_models():
         if "flash" in name and "audio" not in name and "image" not in name and "tts" not in name:
             available.append(name)
     priority = [
-        "gemini-2.5-flash", "gemini-2.5-flash-latest", "gemini-flash-latest",
-        "gemini-2.5-flash-lite", "gemini-3-flash-preview", "gemini-3.0-flash"
+        "gemini-3-flash-preview", "gemini-3.8-flash", "gemini-3.5-flash-lite",
+        "gemini-flash-latest", "gemini-2.5-flash"
     ]
     ordered = [p for p in priority if p in available]
     for a in available:
         if a not in ordered:
             ordered.append(a)
-    return ordered if ordered else ["gemini-flash-latest"]
+    return ordered if ordered else ["gemini-3-flash-preview"]
 
 def download_audio_only(url):
     print("1. Audio download ho rahi hai...", flush=True)
-    # Pehle Incognito Cookies ke saath try karega
-    if os.path.exists("cookies.txt"):
-        try:
-            ydl_opts = {
-                'format': 'bestaudio[ext=m4a]/bestaudio/best',
-                'outtmpl': 'audio.m4a',
-                'overwrites': True,
-                'cookiefile': 'cookies.txt',
-                'quiet': True
-            }
-            with YoutubeDL(ydl_opts) as ydl:
-                ydl.download([url])
-            print("   -> Cookies ke saath audio download complete!", flush=True)
-            return "audio.m4a"
-        except Exception as e:
-            print("   -> Cookie try fail hua, bina cookie tv/android client try kar rahe hain...", flush=True)
-
-    # Fallback: Bina cookie ke tv/android client
-    ydl_opts_fb = {
+    ydl_opts = {
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': 'audio.m4a',
         'overwrites': True,
         'extractor_args': {'youtube': {'player_client': ['tv_simply', 'android_vr', 'ios']}},
         'quiet': True
     }
-    with YoutubeDL(ydl_opts_fb) as ydl:
+    with YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
-    print("   -> Fallback client se audio download complete!", flush=True)
+    print("   -> Audio download complete!", flush=True)
     return "audio.m4a"
 
 def transcribe_audio(audio_path):
@@ -100,7 +77,7 @@ def transcribe_audio(audio_path):
 
 def get_best_3_clips(transcript_text, sentences):
     models_to_try = get_all_flash_models()
-    print("3. Available Gemini models:", models_to_try, flush=True)
+    print("3. AI viral moments chun raha hai...", flush=True)
     prompt = f"""
     Tum ek viral YouTube Shorts & Reels editor ho. Neeche di gayi stream transcript mein se
     EXACT 3 sabse best, funny, exciting ya shocking moments chuno.
@@ -108,7 +85,7 @@ def get_best_3_clips(transcript_text, sentences):
     Rules:
     1. Har clip ki shuruat ek proper sentence ke start se ho (aadhi baat se nahi).
     2. Har clip mein achha dialogue ya reaction ho (khali ya boring hissa bilkul mat lena).
-    3. Teeno clips alag-alag timestamps par honi chahiye.
+    3. Teeno clips ke start time mein kam se kam 90 seconds ka gap hona chahiye (ek hi scene dobara mat lena).
     
     Sirf valid JSON array do:
     [
@@ -132,28 +109,35 @@ def get_best_3_clips(transcript_text, sentences):
             print(f"   -> Safalta! {m_name} ne response de diya.", flush=True)
             break
         except Exception as e:
-            print(f"   -> {m_name} busy/unavailable hai ({e}), agla model try kar rahe hain...", flush=True)
-            time.sleep(3)
+            print(f"   -> {m_name} busy hai, agla model try kar rahe hain...", flush=True)
+            time.sleep(2)
             
     if not res_text:
         raise RuntimeError("Sabhi Gemini models abhi busy hain, 1 minute baad dubara run karein.")
         
-    raw_clips = json.loads(res_text)[:3]
+    raw_clips = json.loads(res_text)
     final_clips = []
+    used_starts = []
     for c in raw_clips:
         approx_start = float(c['start'])
         best_start = approx_start
         for s in sentences:
             if abs(s['start'] - approx_start) <= 4.0:
-                best_start = s['start']
+                best_start = float(s['start'])
                 break
+        # Overlap check: kam se kam 60 sec ka gap rakhein
+        if any(abs(best_start - u) < 60.0 for u in used_starts):
+            continue
+        used_starts.append(best_start)
         final_clips.append({
             "start": round(best_start, 2),
             "end": round(best_start + 30.0, 2),
             "title": c['title'],
             "caption": c['caption']
         })
-    print("   -> 3 Best Clips select ho gayi:", final_clips, flush=True)
+        if len(final_clips) == 3:
+            break
+    print("   -> 3 Best Non-Overlapping Clips:", final_clips, flush=True)
     return final_clips
 
 def format_time(sec):
@@ -197,14 +181,14 @@ if __name__ == "__main__":
         srt = f"c_{i}.srt"
         out = f"final_clips/clip_{i}.mp4"
         
-        print(f"4.{i} Clip {i} ({start}s se {end}s) download ho rahi hai...", flush=True)
+        print(f"4.{i} Clip {i} ({start}s se {end}s) bina cookie tv_simply/android_vr se download ho rahi hai...", flush=True)
         cmd_dl = [
-            "yt-dlp", "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "yt-dlp",
+            "-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best",
+            "--extractor-args", "youtube:player_client=tv_simply,android_vr,ios",
             "--download-sections", f"*{start}-{end}",
             "-o", raw_seg, clean_url
         ]
-        if os.path.exists("cookies.txt"):
-            cmd_dl.extend(["--cookies", "cookies.txt"])
         subprocess.run(cmd_dl, check=True)
         
         print(f"5.{i} Clip {i} mein vertical crop aur captions lag rahe hain...", flush=True)
@@ -218,3 +202,4 @@ if __name__ == "__main__":
         
         print(f"6.{i} Clip {i} YouTube par upload ho rahi hai...", flush=True)
         upload_to_youtube(out, c['title'], c['caption'])
+        
