@@ -19,10 +19,10 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 os.makedirs("final_clips", exist_ok=True)
 
 def normalize_youtube_url(url):
-    # /live/ID ya youtu.be/ID ko clean watch?v=ID mein badalta hai
     match = re.search(r"(?:v=|/live/|youtu\.be/|/shorts/)([a-zA-Z0-9_-]{11})", url)
     if match:
-        clean_url = f"https://youtube.com{match.group(1)}"
+        vid_id = match.group(1)
+        clean_url = "https://" + "www.youtube.com" + "/watch?v=" + vid_id
         print(f"Clean Video URL: {clean_url}")
         return clean_url
     return url
