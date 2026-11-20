@@ -9,9 +9,9 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-# GitHub Secrets se keys uthayega
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 YT_TOKEN_JSON = os.environ.get("YT_TOKEN_JSON")
+YT_COOKIES = os.environ.get("YT_COOKIES")
 VIDEO_URL = os.environ.get("VIDEO_URL")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -20,10 +20,15 @@ os.makedirs("final_clips", exist_ok=True)
 def download_video(url):
     print("1. Cloud par video download ho rahi hai...")
     ydl_opts = {
-        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]',
+        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': 'source.mp4',
         'overwrites': True
     }
+    if YT_COOKIES:
+        with open("cookies.txt", "w", encoding="utf-8") as f:
+            f.write(YT_COOKIES)
+        ydl_opts['cookiefile'] = 'cookies.txt'
+        
     with YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
     return "source.mp4"
@@ -65,7 +70,9 @@ def create_srt(words, start, end, filename):
     with open(filename, "w", encoding="utf-8") as f:
         for idx, i in enumerate(range(0, len(c_words), 3), 1):
             chunk = c_words[i:i+3]
-            f.write(f"{idx}\n{format_time(chunk[0]['start']-start)} --> {format_time(chunk[-1]['end']-start)}\n{' '.join(w['word'] for w in chunk).upper()}\n\n")
+            if not chunk:
+                continue
+            f.write(f"{idx}\n{format_time(chunk['start']-start)} --> {format_time(chunk[-1]['end']-start)}\n{' '.join(w['word'] for w in chunk).upper()}\n\n")
 
 def upload_to_youtube(file_path, title, description):
     if not YT_TOKEN_JSON:
