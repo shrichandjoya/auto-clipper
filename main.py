@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import subprocess
 from yt_dlp import YoutubeDL
@@ -17,22 +18,43 @@ VIDEO_URL = os.environ.get("VIDEO_URL")
 client = genai.Client(api_key=GEMINI_API_KEY)
 os.makedirs("final_clips", exist_ok=True)
 
+def normalize_youtube_url(url):
+    # /live/ID ya youtu.be/ID ko clean watch?v=ID mein badalta hai
+    match = re.search(r"(?:v=|/live/|youtu\.be/|/shorts/)([a-zA-Z0-9_-]{11})", url)
+    if match:
+        clean_url = f"https://youtube.com{match.group(1)}"
+        print(f"Clean Video URL: {clean_url}")
+        return clean_url
+    return url
+
 def download_video(url):
-    print("1. Cloud par video download ho rahi hai...")
+    url = normalize_youtube_url(url)
+    print("1. Cloud par ended live stream / video download ho rahi hai...")
     ydl_opts = {
         'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
         'merge_output_format': 'mp4',
         'outtmpl': 'source.mp4',
-        'overwrites': True
+        'overwrites': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android_vr', 'ios', 'tv_simply']
+            }
+        }
     }
-    if YT_COOKIES:
-        with open("cookies.txt", "w", encoding="utf-8") as f:
-            f.write(YT_COOKIES)
-        ydl_opts['cookiefile'] = 'cookies.txt'
-        
-    with YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    return "source.mp4"
+    try:
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        return "source.mp4"
+    except Exception as e:
+        print("Fallback: Cookies ke saath try kar rahe hain...", e)
+        if YT_COOKIES:
+            with open("cookies.txt", "w", encoding="utf-8") as f:
+                f.write(YT_COOKIES)
+            ydl_opts['cookiefile'] = 'cookies.txt'
+        ydl_opts['extractor_args'] = {'youtube': {'player_client': ['web', 'mweb']}}
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        return "source.mp4"
 
 def transcribe_audio(video_path):
     print("2. Captions nikale ja rahe hain...")
@@ -52,7 +74,7 @@ def get_viral_clips(transcript_text):
     Is video transcript se 3 sabse viral moments chuno (har clip 25 se 50 second ki ho).
     Sirf JSON format do:
     [{{"start": 10.0, "end": 42.0, "title": "Viral Title #shorts", "caption": "Insta caption #reels"}}]
-    Transcript: {transcript_text[:15000]}
+    Transcript: {transcript_text[:25000]}
     """
     res = client.models.generate_content(
         model='gemini-2.5-flash',
