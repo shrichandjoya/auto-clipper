@@ -35,31 +35,69 @@ def download_audio_only(url):
     return "audio.m4a"
 
 def transcribe_audio(audio_path):
-    print("2. Captions nikale ja rahe hain...")
+    print("2. Stream ke pehle 30 minute se captions nikale ja rahe hain...")
+    subprocess.run([
+        "ffmpeg", "-y", "-i", audio_path, "-t", "1800", "-ar", "16000", "-ac", "1", "short_audio.wav"
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
-    segments, _ = model.transcribe(audio_path, word_timestamps=True, beam_size=1)
-    transcript, words = [], []
+    segments, _ = model.transcribe("short_audio.wav", word_timestamps=True, beam_size=1)
+    
+    transcript = []
+    words = []
+    sentences = []
     for seg in segments:
-        transcript.append(f"[{seg.start:.2f}-{seg.end:.2f}] {seg.text}")
+        text_clean = seg.text.strip()
+        if text_clean:
+            transcript.append(f"[{seg.start:.2f} - {seg.end:.2f}] {text_clean}")
+            sentences.append({"start": seg.start, "end": seg.end, "text": text_clean})
         if seg.words:
             for w in seg.words:
                 words.append({"word": w.word.strip(), "start": w.start, "end": w.end})
-    return "\n".join(transcript), words
+    return "\n".join(transcript), words, sentences
 
-def get_viral_clips(transcript_text):
-    print("3. AI viral moments chun raha hai...")
+def get_best_3_clips(transcript_text, sentences):
+    print("3. Gemini AI 3 best aur complete moments chun raha hai...")
     prompt = f"""
-    Is transcript se 3 sabse viral moments chuno (har clip 25 se 50 second ki ho).
-    Sirf JSON format do:
-    [{{"start": 10.0, "end": 42.0, "title": "Viral Title #shorts", "caption": "Insta caption #reels"}}]
-    Transcript: {transcript_text[:25000]}
+    Tum ek viral YouTube Shorts & Reels editor ho. Neeche di gayi stream transcript mein se
+    EXACT 3 sabse best, funny, exciting ya shocking moments chuno.
+    
+    Rules:
+    1. Har clip ki shuruat ek proper sentence ke start se ho (aadhi baat se nahi).
+    2. Har clip mein achha dialogue ya reaction ho (khali ya boring hissa bilkul mat lena).
+    3. Teeno clips alag-alag timestamps par honi chahiye.
+    
+    Sirf valid JSON array do:
+    [
+      {{"start": 45.0, "title": "Catchy Viral Title #shorts", "caption": "Engaging caption with #reels #trending"}}
+    ]
+    
+    Transcript:
+    {transcript_text[:28000]}
     """
     res = client.models.generate_content(
         model='gemini-2.5-flash',
         contents=prompt,
         config=types.GenerateContentConfig(response_mime_type="application/json")
     )
-    return json.loads(res.text)
+    raw_clips = json.loads(res.text)[:3]
+    
+    # Har clip ko exact sentence start par snap karke fixed 30.0 second ka banayein
+    final_clips = []
+    for c in raw_clips:
+        approx_start = float(c['start'])
+        best_start = approx_start
+        for s in sentences:
+            if abs(s['start'] - approx_start) <= 4.0:
+                best_start = s['start']
+                break
+        final_clips.append({
+            "start": round(best_start, 2),
+            "end": round(best_start + 30.0, 2),
+            "title": c['title'],
+            "caption": c['caption']
+        })
+    return final_clips
 
 def format_time(sec):
     sec = max(0.0, sec)
@@ -82,7 +120,10 @@ def create_srt(words, start, end, filename):
 def upload_to_youtube(file_path, title, description):
     creds = Credentials.from_authorized_user_info(json.loads(YT_TOKEN_JSON))
     youtube = build("youtube", "v3", credentials=creds)
-    body = {"snippet": {"title": title[:95], "description": description, "categoryId": "22"}, "status": {"privacyStatus": "public"}}
+    body = {
+        "snippet": {"title": title[:95], "description": description, "categoryId": "22"},
+        "status": {"privacyStatus": "public"}
+    }
     media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
     res = youtube.videos().insert(part="snippet,status", body=body, media_body=media).execute()
     print(f"   -> YouTube Uploaded! Video ID: {res['id']}")
@@ -90,15 +131,16 @@ def upload_to_youtube(file_path, title, description):
 if __name__ == "__main__":
     clean_url = get_clean_url(VIDEO_URL)
     audio = download_audio_only(clean_url)
-    text, words = transcribe_audio(audio)
-    clips = get_viral_clips(text)
+    text, words, sentences = transcribe_audio(audio)
+    clips = get_best_3_clips(text, sentences)
     
     for i, c in enumerate(clips, 1):
-        start, end = float(c['start']), float(c['end'])
+        start, end = c['start'], c['end']
         raw_seg = f"raw_{i}.mp4"
         srt = f"c_{i}.srt"
         out = f"final_clips/clip_{i}.mp4"
         
+        print(f"4.{i} Clip {i} ({start}s se {end}s = exact 30s) download aur render ho rahi hai...")
         subprocess.run([
             "yt-dlp", "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "--download-sections", f"*{start}-{end}",
@@ -107,6 +149,11 @@ if __name__ == "__main__":
         
         create_srt(words, start, end, srt)
         vf = f"crop=ih*(9/16):ih,scale=1080:1920,subtitles={srt}:force_style='Fontname=Arial,FontSize=18,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=60'"
-        subprocess.run(["ffmpeg", "-y", "-i", raw_seg, "-vf", vf, "-c:v", "libx264", "-preset", "fast", "-c:a", "aac", out], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print(f"Clip {i} tayyar!")
+        subprocess.run([
+            "ffmpeg", "-y", "-i", raw_seg, "-t", "30",
+            "-vf", vf, "-af", "afade=t=out:st=29:d=1",
+            "-c:v", "libx264", "-preset", "fast", "-c:a", "aac", out
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        print(f"   -> Clip {i} (30s) tayyar! Upload ho rahi hai...")
         upload_to_youtube(out, c['title'], c['caption'])
