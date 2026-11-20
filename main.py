@@ -20,7 +20,8 @@ os.makedirs("final_clips", exist_ok=True)
 def download_video(url):
     print("1. Cloud par video download ho rahi hai...")
     ydl_opts = {
-        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
+        'merge_output_format': 'mp4',
         'outtmpl': 'source.mp4',
         'overwrites': True
     }
@@ -61,6 +62,7 @@ def get_viral_clips(transcript_text):
     return json.loads(res.text)
 
 def format_time(sec):
+    sec = max(0.0, sec)
     h, m, s = int(sec // 3600), int((sec % 3600) // 60), int(sec % 60)
     ms = int((sec - int(sec)) * 1000)
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
