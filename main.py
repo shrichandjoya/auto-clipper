@@ -33,6 +33,7 @@ def download_audio_only(url):
     with YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
     return "audio.m4a"
+
 def transcribe_audio(audio_path):
     print("2. Captions nikale ja rahe hain...")
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
@@ -73,7 +74,10 @@ def create_srt(words, start, end, filename):
             chunk = c_words[i:i+3]
             if not chunk:
                 continue
-            f.write(f"{idx}\n{format_time(chunk['start']-start)} --> {format_time(chunk[-1]['end']-start)}\n{' '.join(w['word'] for w in chunk).upper()}\n\n")
+            s_t = format_time(chunk['start'] - start)
+            e_t = format_time(chunk[-1]['end'] - start)
+            txt = ' '.join(w['word'] for w in chunk).upper()
+            f.write(f"{idx}\n{s_t} --> {e_t}\n{txt}\n\n")
 
 def upload_to_youtube(file_path, title, description):
     creds = Credentials.from_authorized_user_info(json.loads(YT_TOKEN_JSON))
