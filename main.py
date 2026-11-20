@@ -28,6 +28,18 @@ def get_clean_url(url):
         return "https://www" + ".youtube" + ".com/watch?v=" + match.group(1)
     return url
 
+def get_working_gemini_model():
+    available = []
+    for m in client.models.list():
+        name = m.name.replace("models/", "")
+        if "flash" in name and "lite" not in name and "audio" not in name and "image" not in name:
+            available.append(name)
+    print("   -> Available Flash Models:", available, flush=True)
+    for pref in ["gemini-3-flash-preview", "gemini-3.0-flash", "gemini-flash-latest", "gemini-2.5-flash-latest"]:
+        if pref in available:
+            return pref
+    return available if available else "gemini-flash-latest"
+
 def download_audio_only(url):
     print("1. Audio download ho rahi hai...", flush=True)
     ydl_opts = {
@@ -65,7 +77,8 @@ def transcribe_audio(audio_path):
     return "\n".join(transcript), words, sentences
 
 def get_best_3_clips(transcript_text, sentences):
-    print("3. Gemini 3.0 Flash 3 sabse best 30-second moments chun raha hai...", flush=True)
+    model_name = get_working_gemini_model()
+    print(f"3. Gemini ({model_name}) 3 sabse best 30-second moments chun raha hai...", flush=True)
     prompt = f"""
     Tum ek viral YouTube Shorts & Reels editor ho. Neeche di gayi stream transcript mein se
     EXACT 3 sabse best, funny, exciting ya shocking moments chuno.
@@ -84,7 +97,7 @@ def get_best_3_clips(transcript_text, sentences):
     {transcript_text[:28000]}
     """
     res = client.models.generate_content(
-        model='gemini-3.0-flash',
+        model=model_name,
         contents=prompt,
         config=types.GenerateContentConfig(response_mime_type="application/json")
     )
@@ -120,7 +133,7 @@ def create_srt(words, start, end, filename):
             chunk = c_words[i:i+3]
             if not chunk:
                 continue
-            s_t = format_time(chunk[0]['start'] - start)
+            s_t = format_time(chunk['start'] - start)
             e_t = format_time(chunk[-1]['end'] - start)
             txt = ' '.join(w['word'] for w in chunk).upper()
             f.write(f"{idx}\n{s_t} --> {e_t}\n{txt}\n\n")
