@@ -29,23 +29,25 @@ def get_clean_url(url):
     return url
 
 def download_audio_only(url):
-    print("1. Cloudflare WARP + Cookies ke zariye Audio download ho rahi hai...", flush=True)
+    print("1. Audio download ho rahi hai...", flush=True)
     ydl_opts = {
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': 'audio.m4a',
-        'overwrites': True
+        'overwrites': True,
+        'quiet': True
     }
     if os.path.exists("cookies.txt"):
         ydl_opts['cookiefile'] = 'cookies.txt'
     with YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
+    print("   -> Audio download complete!", flush=True)
     return "audio.m4a"
 
 def transcribe_audio(audio_path):
     print("2. Stream ke pehle 20 minute se captions nikale ja rahe hain...", flush=True)
     subprocess.run([
         "ffmpeg", "-y", "-i", audio_path, "-t", "1200", "-ar", "16000", "-ac", "1", "short_audio.wav"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
     
     model = WhisperModel("tiny", device="cpu", compute_type="int8")
     segments, _ = model.transcribe("short_audio.wav", word_timestamps=True, beam_size=1)
@@ -63,7 +65,7 @@ def transcribe_audio(audio_path):
     return "\n".join(transcript), words, sentences
 
 def get_best_3_clips(transcript_text, sentences):
-    print("3. Gemini AI 3 best aur complete moments chun raha hai...", flush=True)
+    print("3. Gemini 3.0 Flash 3 sabse best 30-second moments chun raha hai...", flush=True)
     prompt = f"""
     Tum ek viral YouTube Shorts & Reels editor ho. Neeche di gayi stream transcript mein se
     EXACT 3 sabse best, funny, exciting ya shocking moments chuno.
@@ -82,7 +84,7 @@ def get_best_3_clips(transcript_text, sentences):
     {transcript_text[:28000]}
     """
     res = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3.0-flash',
         contents=prompt,
         config=types.GenerateContentConfig(response_mime_type="application/json")
     )
@@ -118,7 +120,7 @@ def create_srt(words, start, end, filename):
             chunk = c_words[i:i+3]
             if not chunk:
                 continue
-            s_t = format_time(chunk['start'] - start)
+            s_t = format_time(chunk[0]['start'] - start)
             e_t = format_time(chunk[-1]['end'] - start)
             txt = ' '.join(w['word'] for w in chunk).upper()
             f.write(f"{idx}\n{s_t} --> {e_t}\n{txt}\n\n")
@@ -140,25 +142,30 @@ if __name__ == "__main__":
     text, words, sentences = transcribe_audio(audio)
     clips = get_best_3_clips(text, sentences)
     
-    print("4. Direct stream link nikala ja raha hai...", flush=True)
-    cmd_url = ["yt-dlp", "-f", "best[height<=720][ext=mp4]/best[ext=mp4]/best", "-g", clean_url]
-    if os.path.exists("cookies.txt"):
-        cmd_url.extend(["--cookies", "cookies.txt"])
-    stream_url = subprocess.check_output(cmd_url).decode("utf-8").strip().splitlines()
-    
     for i, c in enumerate(clips, 1):
         start, end = c['start'], c['end']
+        raw_seg = f"raw_{i}.mp4"
         srt = f"c_{i}.srt"
         out = f"final_clips/clip_{i}.mp4"
         
-        print(f"5.{i} Clip {i} ({start}s se 30s) render ho rahi hai...", flush=True)
+        print(f"4.{i} Clip {i} ({start}s se {end}s) download ho rahi hai...", flush=True)
+        cmd_dl = [
+            "yt-dlp", "-f", "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "--download-sections", f"*{start}-{end}",
+            "-o", raw_seg, clean_url
+        ]
+        if os.path.exists("cookies.txt"):
+            cmd_dl.extend(["--cookies", "cookies.txt"])
+        subprocess.run(cmd_dl, check=True)
+        
+        print(f"5.{i} Clip {i} mein vertical crop aur captions lag rahe hain...", flush=True)
         create_srt(words, start, end, srt)
         vf = f"crop=ih*(9/16):ih,scale=1080:1920,subtitles={srt}:force_style='Fontname=Arial,FontSize=18,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=60'"
         subprocess.run([
-            "ffmpeg", "-y", "-ss", str(start), "-i", stream_url, "-t", "30",
+            "ffmpeg", "-y", "-i", raw_seg, "-t", "30",
             "-vf", vf, "-af", "afade=t=out:st=29:d=1",
             "-c:v", "libx264", "-preset", "fast", "-c:a", "aac", out
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
         
-        print(f"   -> Clip {i} tayyar! YouTube par upload ho rahi hai...", flush=True)
+        print(f"6.{i} Clip {i} YouTube par upload ho rahi hai...", flush=True)
         upload_to_youtube(out, c['title'], c['caption'])
