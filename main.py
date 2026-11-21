@@ -486,7 +486,9 @@ if __name__ == "__main__":
                                 if ig_cl:
                                     try:
                                         ig_caption = f"{clip_obj['title']}\n\n{clip_obj['caption']}"
-                                        ig_cl.clip_upload(path, caption=ig_caption[:2100])
+                                        thumb_path = f"{path}.jpg"
+                                        subprocess.run(["ffmpeg", "-y", "-i", path, "-ss", "00:00:01", "-vframes", "1", thumb_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                        ig_cl.clip_upload(path, caption=ig_caption[:2100], thumbnail=thumb_path)
                                         ig_ok = True
                                     except Exception as e:
                                         print(f"IG Upload Error: {e}", flush=True)
