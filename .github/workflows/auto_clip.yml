@@ -36,7 +36,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y ffmpeg
           pip install --upgrade "yt-dlp[default]" requests
           pip install -r requirements.txt
-          pip install instagrapi pillow moviepy
+          pip install google-api-python-client google-auth-oauthlib requests instagrapi pillow "moviepy<2.0"
 
       - name: Generate 10-12 Clips & Send to Telegram
         env:
