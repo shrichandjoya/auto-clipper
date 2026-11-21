@@ -1,0 +1,39 @@
+name: 2. Upload Selected Clips to YouTube
+
+on:
+  workflow_dispatch:
+    inputs:
+      selected_numbers:
+        description: 'Jo clips upload karni hain unke number likhein (jaise: 2, 5, 9)'
+        required: true
+        type: string
+
+jobs:
+  upload-selected:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Upload Libraries
+        run: pip install google-api-python-client google-auth-oauthlib requests
+
+      - name: Download Saved Clips from Cloud
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p final_clips
+          gh release download latest-clips -D final_clips
+
+      - name: Upload Selected Clips
+        env:
+          YT_TOKEN_JSON: ${{ secrets.YT_TOKEN_JSON }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SELECTED_NUMBERS: ${{ github.event.inputs.selected_numbers }}
+        run: python -u upload.py
