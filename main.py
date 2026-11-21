@@ -82,7 +82,7 @@ def ask_gemini_json(prompt):
             time.sleep(2)
     raise RuntimeError("Sabhi Gemini models abhi busy hain.")
 def fetch_full_stream_captions(url):
-    print("1. Puri stream ke captions YouTube se nikale ja rahe hain (3 Second Fast Mode)...", flush=True)
+    print("1. Puri stream ke captions YouTube se nikale ja rahe hain...", flush=True)
     for old_f in glob.glob("sub_data*"):
         os.remove(old_f)
         
@@ -90,8 +90,9 @@ def fetch_full_stream_captions(url):
         'skip_download': True,
         'writesubtitles': True,
         'writeautomaticsub': True,
-        'subtitleslangs': ['hi', 'en', 'hi-Latn'],
+        'subtitleslangs': ['hi'],
         'subtitlesformat': 'json3',
+        'sleep_interval_subtitles': 5,
         'outtmpl': 'sub_data',
         'overwrites': True,
         'quiet': True
@@ -99,8 +100,15 @@ def fetch_full_stream_captions(url):
     if os.path.exists("cookies.txt"):
         ydl_opts['cookiefile'] = 'cookies.txt'
         
-    with YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
+    try:
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except Exception as e:
+        print(f"   -> YouTube captions me 429 rate-limit aaya ({e}), 10 second ruk kar retry kar rahe hain...", flush=True)
+        time.sleep(10)
+        ydl_opts['subtitleslangs'] = ['en']
+        with YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
         
     sub_files = glob.glob("sub_data*.json3")
     if not sub_files:
