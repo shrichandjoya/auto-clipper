@@ -86,7 +86,9 @@ if __name__ == "__main__":
             if ig_cl:
                 try:
                     print(f"Uploading Clip #{n} to Instagram Reels...", flush=True)
-                    ig_caption = f"{clip_obj['title']}\n\n{clip_obj['caption']}"
+                    clean_lines = [line for line in clip_obj['caption'].splitlines() if not line.startswith(("Credit:", "Original Stream:", "Edited by:"))]
+                    ig_body = "\n".join(clean_lines).strip()
+                    ig_caption = f"{clip_obj['title']}\n\n{ig_body}"
                     thumb_path = f"{path}.jpg"
                     subprocess.run(["ffmpeg", "-y", "-i", path, "-ss", "00:00:01", "-vframes", "1", thumb_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     ig_cl.clip_upload(path, caption=ig_caption[:2100], thumbnail=thumb_path)
