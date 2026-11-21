@@ -36,6 +36,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y ffmpeg
           pip install --upgrade "yt-dlp[default]" requests
           pip install -r requirements.txt
+          pip install instagrapi pillow moviepy
 
       - name: Generate 10-12 Clips & Send to Telegram
         env:
@@ -45,6 +46,9 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           VIDEO_URL: ${{ github.event.inputs.youtube_url }}
+          IG_USERNAME: ${{ secrets.IG_USERNAME }}
+          IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
+
         run: python -u main.py
 
       - name: Save Clips to Cloud Storage for Later Selection
@@ -53,3 +57,12 @@ jobs:
         run: |
           gh release delete latest-clips -y || true
           gh release create latest-clips final_clips/* --title "Latest Generated Clips" --notes "Clips ready for selection"
+      - name: Keep Instagram Session Fresh
+        run: |
+         if [ -f "ig_session.json" ]; then
+         git config user.name "AutoClipper Bot"
+         git config user.email "autoclipper@gmail.com"
+         git add ig_session.json
+         git commit -m "Refresh IG session" || true
+         git push || true
+         fi
