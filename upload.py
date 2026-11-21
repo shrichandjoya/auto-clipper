@@ -2,6 +2,7 @@ import os
 import re
 import json
 import requests
+import subprocess
 from instagrapi import Client
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -86,7 +87,9 @@ if __name__ == "__main__":
                 try:
                     print(f"Uploading Clip #{n} to Instagram Reels...", flush=True)
                     ig_caption = f"{clip_obj['title']}\n\n{clip_obj['caption']}"
-                    ig_cl.clip_upload(path, caption=ig_caption[:2100])
+                    thumb_path = f"{path}.jpg"
+                    subprocess.run(["ffmpeg", "-y", "-i", path, "-ss", "00:00:01", "-vframes", "1", thumb_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    ig_cl.clip_upload(path, caption=ig_caption[:2100], thumbnail=thumb_path)
                     ig_ok = True
                     print(f"   -> Clip #{n} Instagram Reel Uploaded!", flush=True)
                 except Exception as e:
