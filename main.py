@@ -106,7 +106,7 @@ def fetch_full_stream_captions(url):
     if not sub_files:
         raise RuntimeError("Is stream me YouTube auto-captions available nahi hain!")
         
-    with open(sub_files, "r", encoding="utf-8") as f:
+    with open(sub_files[0], "r", encoding="utf-8") as f:
         data = json.load(f)
         
     transcript, words, sentences = [], [], []
@@ -198,7 +198,7 @@ def create_clean_hinglish_srt(words, start, end, filename):
         chunk = c_words[i:i+4]
         if not chunk:
             continue
-        s_t = format_time(chunk['start'] - start)
+        s_t = format_time(chunk[0]['start'] - start)
         e_t = format_time(chunk[-1]['end'] - start)
         raw_txt = ' '.join(w['word'] for w in chunk)
         chunks.append({"id": idx, "start": s_t, "end": e_t, "text": raw_txt})
