@@ -1,11 +1,11 @@
 import os
 import re
+import glob
 import json
 import time
 import requests
 import subprocess
 from yt_dlp import YoutubeDL
-from faster_whisper import WhisperModel
 from google import genai
 from google.genai import types
 from google.oauth2.credentials import Credentials
@@ -81,61 +81,81 @@ def ask_gemini_json(prompt):
         except Exception:
             time.sleep(2)
     raise RuntimeError("Sabhi Gemini models abhi busy hain.")
-
-def download_audio_only(url):
-    print("1. Audio download ho rahi hai...", flush=True)
+def fetch_full_stream_captions(url):
+    print("1. Puri stream ke captions YouTube se nikale ja rahe hain (3 Second Fast Mode)...", flush=True)
+    for old_f in glob.glob("sub_data*"):
+        os.remove(old_f)
+        
     ydl_opts = {
-        'format': 'bestaudio[ext=m4a]/bestaudio/best',
-        'outtmpl': 'audio.m4a',
+        'skip_download': True,
+        'writesubtitles': True,
+        'writeautomaticsub': True,
+        'subtitleslangs': ['hi', 'en', 'hi-Latn'],
+        'subtitlesformat': 'json3',
+        'outtmpl': 'sub_data',
         'overwrites': True,
         'quiet': True
     }
     if os.path.exists("cookies.txt"):
         ydl_opts['cookiefile'] = 'cookies.txt'
+        
     with YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
-    return "audio.m4a"
-def transcribe_audio(audio_path):
-    print("2. Stream ke 50 minute tak ki audio samjhi ja rahi hai...", flush=True)
-    subprocess.run([
-        "ffmpeg", "-y", "-i", audio_path, "-t", "3000", "-ar", "16000", "-ac", "1", "short_audio.wav"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    
-    model = WhisperModel("small", device="cpu", compute_type="int8")
-    segments, _ = model.transcribe("short_audio.wav", word_timestamps=True, beam_size=1)
-    
+        
+    sub_files = glob.glob("sub_data*.json3")
+    if not sub_files:
+        raise RuntimeError("Is stream me YouTube auto-captions available nahi hain!")
+        
+    with open(sub_files, "r", encoding="utf-8") as f:
+        data = json.load(f)
+        
     transcript, words, sentences = [], [], []
-    for seg in segments:
-        text_clean = seg.text.strip()
-        if text_clean:
-            transcript.append(f"[{seg.start:.2f} - {seg.end:.2f}] {text_clean}")
-            sentences.append({"start": seg.start, "end": seg.end, "text": text_clean})
-        if seg.words:
-            for w in seg.words:
-                words.append({"word": w.word.strip(), "start": w.start, "end": w.end})
-    print(f"   -> Transcript tayyar! Total {len(sentences)} lines mili.", flush=True)
+    for ev in data.get("events", []):
+        if "segs" not in ev or "tStartMs" not in ev:
+            continue
+        start_sec = ev["tStartMs"] / 1000.0
+        dur_sec = ev.get("dDurationMs", 2000) / 1000.0
+        end_sec = start_sec + dur_sec
+        
+        line_words = []
+        for seg in ev["segs"]:
+            w_text = seg.get("utf8", "").strip()
+            if not w_text or w_text == "\n":
+                continue
+            w_offset = seg.get("tOffsetMs", 0) / 1000.0
+            w_start = start_sec + w_offset
+            words.append({"word": w_text, "start": w_start, "end": w_start + 0.4})
+            line_words.append(w_text)
+            
+        full_line = " ".join(line_words).strip()
+        if full_line:
+            transcript.append(f"[{start_sec:.1f}s] {full_line}")
+            sentences.append({"start": start_sec, "end": end_sec, "text": full_line})
+            
+    print(f"   -> Puri stream ka transcript tayyar! Total {len(sentences)} lines mili.", flush=True)
     return "\n".join(transcript), words, sentences
 
-def get_best_12_clips(transcript_text, sentences):
-    print("3. AI 10 se 12 best moments chun raha hai...", flush=True)
+def get_best_20_clips_full_stream(transcript_text, sentences):
+    print("2. Gemini AI puri stream se 15 se 20 sabse best moments chun raha hai...", flush=True)
     prompt = f"""
     Tum ek expert Indian YouTube Shorts & Reels video editor ho.
-    Neeche di gayi stream transcript se 12 sabse best, funny, shocking, emotional ya high-energy moments chuno.
+    Neeche ek puri live stream ka transcript diya gaya hai (shuru se lekar bilkul akhir tak).
+    Is puri stream me se 20 sabse best, funny, shocking, emotional ya high-energy moments chuno.
     
     Sakht Rules:
-    1. Shuru ke 180 seconds (3 minute) ka boring intro/greeting bilkul mat lena.
-    2. Har clip ek proper sentence ke start se shuru ho (aadhi baat se nahi).
-    3. Aisa hissa chuno jahan lagatar mazedar baat ya reaction chal raha ho.
-    4. Har clip ke start time mein kam se kam 60 seconds ka gap hona chahiye.
+    1. Sirf shuruat se nahi, balki puri stream ke alag-alag hisson (shuru, beech aur akhir) se best clips chuno.
+    2. Shuru ke 180 seconds ka boring intro mat lena.
+    3. Har clip ek proper sentence ke start se shuru ho (aadhi baat se nahi).
+    4. Har clip ke start time me kam se kam 60 seconds ka gap hona chahiye.
     5. Har clip ke liye ek viral Hinglish/English title aur description bhi do.
     
-    Sirf valid JSON array do (12 items):
+    Sirf valid JSON array do (20 items):
     [
-      {{"start": 245.0, "title": "Bhai Ye Kya Ho Gaya! #shorts", "caption": "Must watch moment! #reels #viral #trending"}}
+      {{"start": 1245.0, "title": "Bhai Ye Kya Ho Gaya! #shorts", "caption": "Must watch moment! #reels #viral #trending"}}
     ]
     
-    Transcript:
-    {transcript_text[:60000]}
+    Full Stream Transcript:
+    {transcript_text[:250000]}
     """
     raw_clips = ask_gemini_json(prompt)
     final_clips = []
@@ -161,11 +181,10 @@ def get_best_12_clips(transcript_text, sentences):
             "caption": c['caption'],
             "file": f"clip_{idx}.mp4"
         })
-        if len(final_clips) == 12:
+        if len(final_clips) == 20:
             break
-    print(f"   -> Total {len(final_clips)} clips select ho gayi!", flush=True)
+    print(f"   -> Puri stream se total {len(final_clips)} clips select ho gayi!", flush=True)
     return final_clips
-
 def format_time(sec):
     sec = max(0.0, sec)
     h, m, s = int(sec // 3600), int((sec % 3600) // 60), int(sec % 60)
@@ -179,7 +198,7 @@ def create_clean_hinglish_srt(words, start, end, filename):
         chunk = c_words[i:i+4]
         if not chunk:
             continue
-        s_t = format_time(chunk[0]['start'] - start)
+        s_t = format_time(chunk['start'] - start)
         e_t = format_time(chunk[-1]['end'] - start)
         raw_txt = ' '.join(w['word'] for w in chunk)
         chunks.append({"id": idx, "start": s_t, "end": e_t, "text": raw_txt})
@@ -216,11 +235,10 @@ def upload_to_youtube(file_path, title, description):
     return res['id']
 
 if __name__ == "__main__":
-    send_tg_text("Video process ho rahi hai... 10-12 clips tayyar hote hi aapko bhej di jayengi!")
+    send_tg_text("Puri stream scan ho rahi hai... 15 se 20 sabse best clips tayyar hote hi aapko bhej di jayengi!")
     clean_url = get_clean_url(VIDEO_URL)
-    audio = download_audio_only(clean_url)
-    text, words, sentences = transcribe_audio(audio)
-    clips = get_best_12_clips(text, sentences)
+    text, words, sentences = fetch_full_stream_captions(clean_url)
+    clips = get_best_20_clips_full_stream(text, sentences)
     
     with open("final_clips/clips_meta.json", "w", encoding="utf-8") as f:
         json.dump(clips, f, ensure_ascii=False, indent=2)
@@ -232,7 +250,7 @@ if __name__ == "__main__":
         srt = f"c_{i}.srt"
         out = f"final_clips/clip_{i}.mp4"
         
-        print(f"4.{i} Clip #{i} ({start}s se {end}s) ban rahi hai...", flush=True)
+        print(f"3.{i} Clip #{i} ({start}s se {end}s) ban rahi hai...", flush=True)
         cmd_dl = [
             "yt-dlp",
             "-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best",
@@ -267,12 +285,12 @@ if __name__ == "__main__":
         
         send_tg_text(
             f"Saari {len(clips)} clips bhej di gayi hain!\n\n"
-            "Agle 8 minute mein un clips ke NUMBER likh kar reply karein jinhe YouTube par upload karna hai (jaise: 2, 5, 9)\n"
+            "Agle 30 minute mein un clips ke NUMBER likh kar reply karein jinhe YouTube par upload karna hai (jaise: 2, 5, 14)\n"
             "Ya baad mein upload karne ke liye GitHub Actions mein '2. Upload Selected Clips' chala lein."
         )
         
-        print("5. Telegram par aapke selection reply ka intezaar (8 minute)...", flush=True)
-        deadline = time.time() + 480
+        print("4. Telegram par aapke selection reply ka intezaar (30 minute)...", flush=True)
+        deadline = time.time() + 1800
         while time.time() < deadline:
             resp = requests.get(upd_url, params={"offset": offset, "timeout": 20}).json()
             for item in resp.get("result", []):
