@@ -468,7 +468,7 @@ if __name__ == "__main__":
                 if str(msg.get("chat", {}).get("id")) == str(TELEGRAM_CHAT_ID):
                     txt = msg.get("text", "")
                     nums = [int(n) for n in re.findall(r"\d+", txt)]
-                                        if nums:
+                if nums:
                         send_tg_text(f"Clips {nums} YouTube aur Instagram par upload ki ja rahi hain...")
                         from upload import get_ig_client
                         ig_cl = get_ig_client()
