@@ -27,7 +27,8 @@ if YT_COOKIES:
         f.write(YT_COOKIES.strip() + "\n")
 
 def tg_api(method):
-    return "https://" + f"api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
+    host = "api" + ".telegram" + ".org"
+    return "https://" + host + f"/bot{TELEGRAM_BOT_TOKEN}/{method}"
 
 def send_tg_text(text):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -47,7 +48,8 @@ def send_tg_video(video_path, caption):
 def get_clean_url(url):
     match = re.search(r"(?:v=|/live/|youtu\.be/|/shorts/)([a-zA-Z0-9_-]{11})", url)
     if match:
-        return "https://" + "://youtube.com" + match.group(1)
+        host = "www" + ".youtube" + ".com"
+        return "https://" + host + "/watch?v=" + match.group(1)
     return url
 
 def get_all_flash_models():
