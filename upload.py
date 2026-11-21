@@ -44,7 +44,7 @@ def get_ig_client():
     if not IG_USERNAME or not IG_PASSWORD:
         return None
     cl = Client()
-    cl.delay_range =
+    cl.delay_range = [1, 3]
     try:
         if os.path.exists(SESSION_FILE):
             print("   -> Saved ig_session.json load ho raha hai...", flush=True)
