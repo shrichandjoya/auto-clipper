@@ -465,20 +465,35 @@ if __name__ == "__main__":
                 if str(msg.get("chat", {}).get("id")) == str(TELEGRAM_CHAT_ID):
                     txt = msg.get("text", "")
                     nums = [int(n) for n in re.findall(r"\d+", txt)]
-                    if nums:
-                        send_tg_text(f"Clips {nums} YouTube par upload ki ja rahi hain...")
+                                        if nums:
+                        send_tg_text(f"Clips {nums} YouTube aur Instagram par upload ki ja rahi hain...")
+                        from upload import get_ig_client
+                        ig_cl = get_ig_client()
                         for n in nums:
                             clip_obj = next((x for x in clips if x["id"] == n), None)
-                            if clip_obj and os.path.exists(f"final_clips/{clip_obj['file']}"):
+                            path = f"final_clips/{clip_obj['file']}" if clip_obj else ""
+                            if clip_obj and os.path.exists(path):
                                 vid_id = upload_to_youtube(
-                                    f"final_clips/{clip_obj['file']}",
+                                    path,
                                     clip_obj["title"],
                                     clip_obj["caption"],
                                     clip_obj.get("tags")
                                 )
                                 yt_host = "youtube" + ".com"
                                 yt_link = "https://" + yt_host + f"/shorts/{vid_id}"
-                                send_tg_text(f"Clip #{n} Uploaded! {yt_link}")
-                        send_tg_text("Aapki saari selected clips upload ho gayi hain!")
+                                
+                                ig_ok = False
+                                if ig_cl:
+                                    try:
+                                        ig_caption = f"{clip_obj['title']}\n\n{clip_obj['caption']}"
+                                        ig_cl.clip_upload(path, caption=ig_caption[:2100])
+                                        ig_ok = True
+                                    except Exception as e:
+                                        print(f"IG Upload Error: {e}", flush=True)
+                                        
+                                msg = f"Clip #{n} Uploaded!\nYouTube: {yt_link}"
+                                if ig_ok:
+                                    msg += "\nInstagram Reel: @ursvibe01 par LIVE ho gayi hai!"
+                                send_tg_text(msg)
+                        send_tg_text("Aapki saari selected clips YouTube aur Instagram par upload ho gayi hain!")
                         exit(0)
-            time.sleep(3)
