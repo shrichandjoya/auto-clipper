@@ -12,7 +12,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 SELECTED_NUMBERS = os.environ.get("SELECTED_NUMBERS", "")
 
 def tg_api(method):
-    return "https://" + f"api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
+    host = "api" + ".telegram" + ".org"
+    return "https://" + host + f"/bot{TELEGRAM_BOT_TOKEN}/{method}"
 
 def send_tg_text(text):
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
@@ -43,5 +44,6 @@ if __name__ == "__main__":
             print(f"Uploading Clip #{n}...", flush=True)
             vid_id = upload_to_youtube(path, clip_obj["title"], clip_obj["caption"])
             print(f"   -> Uploaded! ID: {vid_id}", flush=True)
-            yt_link = "https://" + f"://youtube.com{vid_id}"
+            yt_host = "youtube" + ".com"
+            yt_link = "https://" + yt_host + f"/shorts/{vid_id}"
             send_tg_text(f"Clip #{n} YouTube par upload ho gayi! {yt_link}")
