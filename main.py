@@ -386,7 +386,10 @@ def upload_to_youtube(file_path, title, description, tags=None):
             "tags": tags or ["shorts", "gaming", "ursvibe01"],
             "categoryId": "20"
         },
-        "status": {"privacyStatus": "public"}
+        "status": {
+            "privacyStatus": "public",
+            "selfDeclaredMadeForKids": False
+        }
     }
     media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
     res = youtube.videos().insert(part="snippet,status", body=body, media_body=media).execute()
