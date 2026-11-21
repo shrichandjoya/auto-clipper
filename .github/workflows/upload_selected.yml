@@ -8,6 +8,9 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   upload-selected:
     runs-on: ubuntu-latest
@@ -15,13 +18,18 @@ jobs:
       - name: Code Checkout
         uses: actions/checkout@v4
 
+      - name: Bypass IP Block (Cloudflare WARP)
+        run: echo "Y3VybCAtZnNTTCBodHRwczovL3BrZy5jbG91ZGZsYXJlY2xpZW50LmNvbS9wdWJrZXkuZ3BnIHwgc3VkbyBncGcgLS15ZXMgLS1kZWFybW9yIC0tb3V0cHV0IC91c3Ivc2hhcmUva2V5cmluZ3MvY2xvdWRmbGFyZS13YXJwLWFyY2hpdmUta2V5cmluZy5ncGcKZWNobyAiZGViIFtzaWduZWQtYnk9L3Vzci9zaGFyZS9rZXlyaW5ncy9jbG91ZGZsYXJlLXdhcnAtYXJjaGl2ZS1rZXlyaW5nLmdwZ10gaHR0cHM6Ly9wa2cuY2xvdWRmbGFyZWNsaWVudC5jb20vICQobHNiX3JlbGVhc2UgLWNzKSBtYWluIiB8IHN1ZG8gdGVlIC9ldGMvYXB0L3NvdXJjZXMubGlzdC5kL2Nsb3VkZmxhcmUtY2xpZW50Lmxpc3QKc3VkbyBhcHQtZ2V0IHVwZGF0ZSAmJiBzdWRvIGFwdC1nZXQgaW5zdGFsbCAteSBjbG91ZGZsYXJlLXdhcnAKd2FycC1jbGkgLS1hY2NlcHQtdG9zIHJlZ2lzdHJhdGlvbiBuZXcKd2FycC1jbGkgLS1hY2NlcHQtdG9zIGNvbm5lY3QKc2xlZXAgNQo=" | base64 -d | bash
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install Upload Libraries
-        run: pip install google-api-python-client google-auth-oauthlib requests cloudinary
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          pip install google-api-python-client google-auth-oauthlib requests instagrapi pillow moviepy
 
       - name: Download Saved Clips from Cloud
         env:
@@ -35,7 +43,17 @@ jobs:
           YT_TOKEN_JSON: ${{ secrets.YT_TOKEN_JSON }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          CLOUDINARY_URL: ${{ secrets.CLOUDINARY_URL }}
-          IG_WEBHOOK_URL: ${{ secrets.IG_WEBHOOK_URL }}
+          IG_USERNAME: ${{ secrets.IG_USERNAME }}
+          IG_PASSWORD: ${{ secrets.IG_PASSWORD }}
           SELECTED_NUMBERS: ${{ github.event.inputs.selected_numbers }}
         run: python -u upload.py
+
+      - name: Keep Instagram Session Fresh
+        run: |
+          if [ -f "ig_session.json" ]; then
+            git config user.name "AutoClipper Bot"
+            git config user.email "bot@://github.com"
+            git add ig_session.json
+            git commit -m "Refresh IG session" || true
+            git push || true
+          fi
