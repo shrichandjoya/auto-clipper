@@ -122,11 +122,10 @@ def fetch_full_stream_captions(url):
         
     ydl_opts = {
         'skip_download': True,
-        'writesubtitles': True,
         'writeautomaticsub': True,
-        'subtitleslangs': ['hi'],
+        'subtitleslangs': ['hi', 'en'],
         'subtitlesformat': 'json3',
-        'sleep_interval_subtitles': 3,
+        'ignoreerrors': True,
         'outtmpl': 'sub_data',
         'overwrites': True,
         'quiet': True
@@ -138,42 +137,93 @@ def fetch_full_stream_captions(url):
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
     except Exception:
-        time.sleep(4)
-        ydl_opts['subtitleslangs'] = ['en']
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+        pass
         
     sub_files = glob.glob("sub_data*.json3")
-    if not sub_files:
-        raise RuntimeError("Is stream me YouTube auto-captions available nahi hain!")
-        
-    with open(sub_files[0], "r", encoding="utf-8") as f:
-        data = json.load(f)
-        
-    transcript, words, sentences = [], [], []
-    for ev in data.get("events", []):
-        if "segs" not in ev or "tStartMs" not in ev:
-            continue
-        start_sec = ev["tStartMs"] / 1000.0
-        dur_sec = ev.get("dDurationMs", 2000) / 1000.0
-        end_sec = start_sec + dur_sec
-        
-        line_words = []
-        for seg in ev["segs"]:
-            w_text = seg.get("utf8", "").strip()
-            if not w_text or w_text == "\n":
+    if sub_files:
+        with open(sub_files, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            
+        transcript, words, sentences = [], [], []
+        for ev in data.get("events", []):
+            if "segs" not in ev or "tStartMs" not in ev:
                 continue
-            w_offset = seg.get("tOffsetMs", 0) / 1000.0
-            w_start = start_sec + w_offset
-            words.append({"word": w_text, "start": w_start, "end": w_start + 0.4})
-            line_words.append(w_text)
+            start_sec = ev["tStartMs"] / 1000.0
+            dur_sec = ev.get("dDurationMs", 2000) / 1000.0
+            end_sec = start_sec + dur_sec
             
-        full_line = " ".join(line_words).strip()
-        if full_line:
-            transcript.append(f"[{start_sec:.1f}s] {full_line}")
-            sentences.append({"start": start_sec, "end": end_sec, "text": full_line})
-            
-    print(f"   -> Transcript tayyar! Total {len(sentences)} lines mili.", flush=True)
+            line_words = []
+            for seg in ev["segs"]:
+                w_text = seg.get("utf8", "").strip()
+                if not w_text or w_text == "\n":
+                    continue
+                w_offset = seg.get("tOffsetMs", 0) / 1000.0
+                w_start = start_sec + w_offset
+                words.append({"word": w_text, "start": w_start, "end": w_start + 0.4})
+                line_words.append(w_text)
+                
+            full_line = " ".join(line_words).strip()
+            if full_line:
+                transcript.append(f"[{start_sec:.1f}s] {full_line}")
+                sentences.append({"start": start_sec, "end": end_sec, "text": full_line})
+                
+        if len(sentences) > 20:
+            print(f"   -> YouTube captions mil gaye! Total {len(sentences)} lines.", flush=True)
+            return "\n".join(transcript), words, sentences
+
+    # Agar YouTube ne subtitiles par 429 block lagaya hai, to Audio se Fast Whisper Fallback chalega
+    print("   -> YouTube subtitles 429 rate-limited hain, Audio Fast-Whisper Backup chalu ho raha hai...", flush=True)
+    from faster_whisper import WhisperModel
+    
+    ydl_aud = {
+        'format': 'bestaudio[ext=m4a]/bestaudio/best',
+        'outtmpl': 'audio.m4a',
+        'overwrites': True,
+        'quiet': True
+    }
+    if os.path.exists("cookies.txt"):
+        ydl_aud['cookiefile'] = 'cookies.txt'
+    try:
+        with YoutubeDL(ydl_aud) as ydl:
+            ydl.download([url])
+    except Exception:
+        ydl_aud.pop('cookiefile', None)
+        ydl_aud['extractor_args'] = {'youtube': {'player_client': ['tv_simply', 'android_vr']}}
+        with YoutubeDL(ydl_aud) as ydl:
+            ydl.download([url])
+
+    # Puri stream ke 4 alag-alag hisson (shuru, 25%, 50%, 75%) se 10-10 minute ka sample lekar 2 minute me scan karein
+    dur_out = subprocess.check_output([
+        "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", "audio.m4a"
+    ]).decode().strip()
+    total_dur = float(dur_out) if dur_out else 3600.0
+    
+    offsets = [180]
+    if total_dur > 1800:
+        offsets = [180, int(total_dur * 0.28), int(total_dur * 0.55), int(total_dur * 0.80)]
+        
+    model = WhisperModel("tiny", device="cpu", compute_type="int8")
+    transcript, words, sentences = [], [], []
+    
+    for idx_part, off in enumerate(offsets):
+        part_wav = f"part_{idx_part}.wav"
+        subprocess.run([
+            "ffmpeg", "-y", "-ss", str(off), "-i", "audio.m4a", "-t", "600", "-ar", "16000", "-ac", "1", part_wav
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        
+        segments, _ = model.transcribe(part_wav, word_timestamps=True, beam_size=1)
+        for seg in segments:
+            text_clean = seg.text.strip()
+            real_s = seg.start + off
+            real_e = seg.end + off
+            if text_clean:
+                transcript.append(f"[{real_s:.1f}s] {text_clean}")
+                sentences.append({"start": real_s, "end": real_e, "text": text_clean})
+            if seg.words:
+                for w in seg.words:
+                    words.append({"word": w.word.strip(), "start": w.start + off, "end": w.end + off})
+                    
+    print(f"   -> Puri stream (4 hisson) ka transcript tayyar! Total {len(sentences)} lines mili.", flush=True)
     return "\n".join(transcript), words, sentences
 
 def get_best_16_clips_full_stream(transcript_text, sentences, creator_name, stream_title):
