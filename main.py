@@ -141,7 +141,7 @@ def fetch_full_stream_captions(url):
         
     sub_files = glob.glob("sub_data*.json3")
     if sub_files:
-        with open(sub_files, "r", encoding="utf-8") as f:
+       with open(next(iter(sub_files)), "r", encoding="utf-8") as f:
             data = json.load(f)
             
         transcript, words, sentences = [], [], []
@@ -319,7 +319,7 @@ def build_all_srts_in_one_batch(clips, words):
             chunk = c_words[i:i+3]
             if not chunk:
                 continue
-            s_t = format_time(chunk[0]['start'] - start)
+            s_t = format_time(next(iter(chunk))['start'] - start)
             e_t = format_time(chunk[-1]['end'] - start)
             raw_txt = ' '.join(w['word'] for w in chunk)
             uid = f"{cid}_{idx}"
