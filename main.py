@@ -287,7 +287,8 @@ if __name__ == "__main__":
                             clip_obj = next((x for x in clips if x["id"] == n), None)
                             if clip_obj and os.path.exists(f"final_clips/{clip_obj['file']}"):
                                 vid_id = upload_to_youtube(f"final_clips/{clip_obj['file']}", clip_obj["title"], clip_obj["caption"])
-                                yt_link = "https://" + f"://youtube.com{vid_id}"
+                                yt_host = "youtube" + ".com"
+                                yt_link = "https://" + yt_host + f"/shorts/{vid_id}"
                                 send_tg_text(f"Clip #{n} Uploaded! {yt_link}")
                         send_tg_text("Aapki saari selected clips upload ho gayi hain!")
                         exit(0)
