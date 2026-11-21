@@ -29,7 +29,7 @@ jobs:
       - name: Install Upload Libraries
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg
-          pip install google-api-python-client google-auth-oauthlib requests instagrapi pillow moviepy
+          pip install google-api-python-client google-auth-oauthlib requests instagrapi pillow "moviepy<2.0"
 
       - name: Download Saved Clips from Cloud
         env:
