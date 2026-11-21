@@ -19,11 +19,16 @@ def send_tg_text(text):
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         requests.post(tg_api("sendMessage"), data={"chat_id": TELEGRAM_CHAT_ID, "text": text})
 
-def upload_to_youtube(file_path, title, description):
+def upload_to_youtube(file_path, title, description, tags=None):
     creds = Credentials.from_authorized_user_info(json.loads(YT_TOKEN_JSON))
     youtube = build("youtube", "v3", credentials=creds)
     body = {
-        "snippet": {"title": title[:95], "description": description, "categoryId": "22"},
+        "snippet": {
+            "title": title[:95],
+            "description": description,
+            "tags": tags or ["shorts", "gaming", "ursvibe01"],
+            "categoryId": "20"
+        },
         "status": {"privacyStatus": "public"}
     }
     media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
@@ -42,7 +47,12 @@ if __name__ == "__main__":
         path = f"final_clips/clip_{n}.mp4"
         if clip_obj and os.path.exists(path):
             print(f"Uploading Clip #{n}...", flush=True)
-            vid_id = upload_to_youtube(path, clip_obj["title"], clip_obj["caption"])
+            vid_id = upload_to_youtube(
+                path,
+                clip_obj["title"],
+                clip_obj["caption"],
+                clip_obj.get("tags")
+            )
             print(f"   -> Uploaded! ID: {vid_id}", flush=True)
             yt_host = "youtube" + ".com"
             yt_link = "https://" + yt_host + f"/shorts/{vid_id}"
