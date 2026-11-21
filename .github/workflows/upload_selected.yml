@@ -52,7 +52,7 @@ jobs:
         run: |
           if [ -f "ig_session.json" ]; then
             git config user.name "AutoClipper Bot"
-            git config user.email "bot@://github.com"
+            git config user.email "autoclipper@gmail.com"
             git add ig_session.json
             git commit -m "Refresh IG session" || true
             git push || true
