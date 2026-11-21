@@ -1,4 +1,4 @@
-name: One-Link Auto Clipper & Uploader
+name: 1. Prepare 12 Clips & Send to Telegram
 
 on:
   workflow_dispatch:
@@ -8,8 +8,11 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: write
+
 jobs:
-  clip-and-upload:
+  clip-and-send:
     runs-on: ubuntu-latest
     steps:
       - name: Code Checkout
@@ -21,7 +24,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Setup Deno (For yt-dlp)
         uses: denoland/setup-deno@v2
@@ -31,13 +34,22 @@ jobs:
       - name: Install FFmpeg & Libraries
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg
-          pip install --upgrade "yt-dlp[default]"
+          pip install --upgrade "yt-dlp[default]" requests
           pip install -r requirements.txt
 
-      - name: Run Auto Clipper & Uploader
+      - name: Generate 10-12 Clips & Send to Telegram
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           YT_TOKEN_JSON: ${{ secrets.YT_TOKEN_JSON }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           VIDEO_URL: ${{ github.event.inputs.youtube_url }}
         run: python -u main.py
+
+      - name: Save Clips to Cloud Storage for Later Selection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest-clips -y || true
+          gh release create latest-clips final_clips/* --title "Latest Generated Clips" --notes "Clips ready for selection"
