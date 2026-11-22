@@ -116,7 +116,7 @@ def ask_gemini_json(prompt):
             time.sleep(2)
     raise RuntimeError("Sabhi Gemini models abhi busy hain.")
 def fetch_full_stream_captions(url):
-    print("1. Puri stream ke captions nikale ja rahe hain...", flush=True)
+    print("1. Puri stream ke captions nikale ja rahe hain (Cookie-Free Permanent Mode)...", flush=True)
     for old_f in glob.glob("sub_data*"):
         os.remove(old_f)
 
@@ -126,12 +126,11 @@ def fetch_full_stream_captions(url):
         'subtitleslangs': ['hi', 'en'],
         'subtitlesformat': 'json3',
         'ignoreerrors': True,
+        'extractor_args': {'youtube': {'player_client': ['tv_simply', 'android_vr', 'ios']}},
         'outtmpl': 'sub_data',
         'overwrites': True,
         'quiet': True
     }
-    if os.path.exists("cookies.txt"):
-        ydl_opts['cookiefile'] = 'cookies.txt'
 
     try:
         with YoutubeDL(ydl_opts) as ydl:
@@ -171,32 +170,25 @@ def fetch_full_stream_captions(url):
             print(f"   -> YouTube captions mil gaye! Total {len(sentences)} lines.", flush=True)
             return "\n".join(transcript), words, sentences
 
-    print("   -> YouTube subtitles rate-limited hain, Audio Fast-Whisper Backup chalu ho raha hai...", flush=True)
+    print("   -> Audio Fast-Whisper Backup chalu ho raha hai (Cookie-Free)...", flush=True)
     from faster_whisper import WhisperModel
 
     ydl_aud = {
-        'format': 'bestaudio[ext=m4a]/bestaudio/best',
+        'format': 'worstaudio[ext=m4a]/worstaudio/bestaudio',
+        'extractor_args': {'youtube': {'player_client': ['tv_simply', 'android_vr', 'ios']}},
         'outtmpl': 'audio.m4a',
         'overwrites': True,
         'quiet': True
     }
-    if os.path.exists("cookies.txt"):
-        ydl_aud['cookiefile'] = 'cookies.txt'
-    try:
-        with YoutubeDL(ydl_aud) as ydl:
-            ydl.download([url])
-    except Exception:
-        ydl_aud.pop('cookiefile', None)
-        ydl_aud['extractor_args'] = {'youtube': {'player_client': ['tv_simply', 'android_vr']}}
-        with YoutubeDL(ydl_aud) as ydl:
-            ydl.download([url])
+    with YoutubeDL(ydl_aud) as ydl:
+        ydl.download([url])
 
     dur_out = subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", "audio.m4a"
     ]).decode().strip()
     total_dur = float(dur_out) if dur_out else 3600.0
 
-    offsets = [0]
+    offsets = list((180,))
     if total_dur > 1800:
         offsets = [180, int(total_dur * 0.28), int(total_dur * 0.55), int(total_dur * 0.80)]
 
@@ -221,30 +213,30 @@ def fetch_full_stream_captions(url):
                 for w in seg.words:
                     words.append({"word": w.word.strip(), "start": w.start + off, "end": w.end + off})
 
-    print(f"   -> Puri stream (4 hisson) ka transcript tayyar! Total {len(sentences)} lines mili.", flush=True)
+    print(f"   -> Transcript tayyar! Total {len(sentences)} lines mili.", flush=True)
     return "\n".join(transcript), words, sentences
 
 def get_best_16_clips_full_stream(transcript_text, sentences, creator_name, stream_title):
-    print("2. Gemini AI puri stream se 16 best moments aur clip-specific hashtags chun raha hai...", flush=True)
+    print("2. Gemini AI scene aur poori baat ke hisaab se 16 clips chun raha hai (20-55 sec)...", flush=True)
     prompt = f"""
     Tum ek expert Indian Gaming & Entertainment Shorts editor ho.
     Creator Name: {creator_name}
     Stream Title: {stream_title}
     
-    Neeche di gayi puri live stream transcript se 16 sabse best, funny, shocking, clutch ya high-energy moments chuno.
+    Neeche di gayi puri live stream transcript se 16 sabse best, funny, shocking, clutch ya high-energy COMPLETE SCENES chuno.
     
     Sakht Rules:
-    1. Puri stream ke alag-alag hisson (shuru, beech aur akhir) se best clips chuno (shuru ke 180s mat lena).
-    2. Har clip ek proper sentence ke start se shuru ho.
-    3. Har clip ke start time me kam se kam 65 seconds ka gap hona chahiye.
-    4. Har clip ke 'title' mein 2-3 relevant hashtags lagao (jaise #shorts aur streamer/game ka naam).
-    5. Har clip ke 'hashtags' field mein us specific clip ke scene, emotion, game aur streamer se jude 6 se 8 relevant hashtags do (jaise: "#carryminati #gta5 #funny #gaming #clutch #viralshorts #ursvibe01").
-    6. Har clip ke 'tags' field mein 8 keywords ki list do (bina # ke, YouTube video tags ke liye).
+    1. Har clip ki length **20 se 55 seconds** ke beech honi chahiye—tab tak clip mat roko jab tak wo joke, clutch ya baat poori khatam na ho jaye!
+    2. 'start' kisi proper sentence ke shuru se ho aur 'end' us scene ke aakhiri sentence ke khatam hone par ho (beech baat me kabhi mat katna).
+    3. Puri stream ke alag-alag hisson (shuru, beech aur akhir) se best clips chuno (shuru ke 180s mat lena).
+    4. Har clip ke start time me kam se kam 65 seconds ka gap rakho.
+    5. Har clip ke 'title' mein 2-3 relevant hashtags lagao, 'hashtags' mein 6-8 scene/game/streamer related hashtags do, aur 'tags' mein 8 keywords ki list do.
     
     Sirf valid JSON array do (16 items):
     [
       {{
         "start": 1245.0,
+        "end": 1284.5,
         "title": "Bhai Ye Kya Ho Gaya! #shorts #gaming",
         "caption": "Must watch moment from the stream!",
         "hashtags": "#gaming #funny #clutch #viralshorts #trending #ursvibe01",
@@ -258,18 +250,32 @@ def get_best_16_clips_full_stream(transcript_text, sentences, creator_name, stre
     raw_clips = ask_gemini_json(prompt)
     final_clips = []
     used_starts = []
-    
     clean_stream_name = stream_title[:70].strip()
     
     for c in raw_clips:
         approx_start = float(c['start'])
+        approx_end = float(c.get('end', approx_start + 38.0))
         if approx_start < 150.0:
             continue
+            
         best_start = approx_start
         for s in sentences:
             if abs(s['start'] - approx_start) <= 5.0:
                 best_start = float(s['start'])
                 break
+                
+        best_end = approx_end
+        for s in sentences:
+            if abs(s['end'] - approx_end) <= 6.0 and (s['end'] - best_start) >= 18.0:
+                best_end = float(s['end']) + 0.6
+                break
+                
+        dur = best_end - best_start
+        if dur < 18.0:
+            best_end = best_start + 26.0
+        elif dur > 56.0:
+            best_end = best_start + 55.0
+            
         if any(abs(best_start - u) < 65.0 for u in used_starts):
             continue
         used_starts.append(best_start)
@@ -287,7 +293,7 @@ def get_best_16_clips_full_stream(transcript_text, sentences, creator_name, stre
         final_clips.append({
             "id": idx,
             "start": round(best_start, 2),
-            "end": round(best_start + 30.0, 2),
+            "end": round(best_end, 2),
             "title": c['title'],
             "caption": full_description,
             "tags": c.get('tags', ["shorts", "gaming", "ursvibe01"]),
@@ -295,8 +301,9 @@ def get_best_16_clips_full_stream(transcript_text, sentences, creator_name, stre
         })
         if len(final_clips) == 16:
             break
-    print(f"   -> Puri stream se total {len(final_clips)} clips relevant hashtags ke saath select ho gayi!", flush=True)
+    print(f"   -> Total {len(final_clips)} complete-scene clips select ho gayi!", flush=True)
     return final_clips
+
 def format_time(sec):
     sec = max(0.0, sec)
     h, m, s = int(sec // 3600), int((sec % 3600) // 60), int(sec % 60)
@@ -304,7 +311,7 @@ def format_time(sec):
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
 def build_all_srts_in_one_batch(clips, words):
-    print("3. Sabhi clips ke captions ek hi baar me Hinglish me saaf kiye ja rahe hain...", flush=True)
+    print("3. Sabhi clips ke captions Hinglish me saaf kiye ja rahe hain...", flush=True)
     all_chunks_by_clip = {}
     batch_for_ai = []
     
@@ -348,25 +355,22 @@ def build_all_srts_in_one_batch(clips, words):
                 f.write(f"{ch['id']}\n{ch['start']} --> {ch['end']}\n{ch['text'].upper()}\n\n")
 
 def download_all_sections_fast(clean_url, clips):
-    print("4. Sabhi 16 clips ek hi shot me download ho rahi hain (Zero-Block Fast Mode)...", flush=True)
+    print("4. Sabhi clips download ho rahi hain (Cookie-Free Mode)...", flush=True)
     cmd = [
         "yt-dlp",
         "-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best",
+        "--extractor-args", "youtube:player_client=tv_simply,android_vr,ios",
         "-o", "raw_%(section_number)s.mp4"
     ]
-    if os.path.exists("cookies.txt"):
-        cmd.extend(["--cookies", "cookies.txt"])
     for c in clips:
         cmd.extend(["--download-sections", f"*{c['start']}-{c['end']}"])
     cmd.append(clean_url)
-    
     subprocess.run(cmd)
     
     for c in clips:
         i = c['id']
         raw_seg = f"raw_{i}.mp4"
         if not os.path.exists(raw_seg) or os.path.getsize(raw_seg) < 10000:
-            print(f"   -> Clip #{i} fallback client se download ho rahi hai...", flush=True)
             cmd_fb = [
                 "yt-dlp",
                 "-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best",
@@ -399,7 +403,7 @@ if __name__ == "__main__":
     start_clock = time.time()
     clean_url = get_clean_url(VIDEO_URL)
     creator_name, stream_title = get_stream_info(clean_url)
-    send_tg_text(f"Creator: {creator_name}\nStream: {stream_title}\n\n10 minute se kam me 16 clips relevant hashtags ke saath tayyar hokar aa jayengi!")
+    send_tg_text(f"Creator: {creator_name}\nStream: {stream_title}\n\nComplete-Scene clips tayyar hokar aa jayengi!")
     
     text, words, sentences = fetch_full_stream_captions(clean_url)
     clips = get_best_16_clips_full_stream(text, sentences, creator_name, stream_title)
@@ -413,40 +417,38 @@ if __name__ == "__main__":
     sent_count = 0
     for c in clips:
         i = c['id']
+        clip_dur = round(c['end'] - c['start'], 2)
         raw_seg = f"raw_{i}.mp4"
         srt = f"c_{i}.srt"
         out = f"final_clips/clip_{i}.mp4"
         
         if not os.path.exists(raw_seg) or os.path.getsize(raw_seg) < 10000:
-            print(f"   -> Clip #{i} skip (download nahi ho saki).", flush=True)
             continue
             
-        print(f"5.{i} Clip #{i} edit aur Telegram par send ho rahi hai...", flush=True)
-        hook_txt = re.sub(r'[^A-Za-z0-9 !?]', '', c['title'].split('#')[0]).strip().upper()[:28]
+        print(f"5.{i} Clip #{i} ({clip_dur}s) edit aur Telegram par send ho rahi hai...", flush=True)
+        hook_txt = re.sub(r'[^A-Za-z0-9 !?]', '', next(iter(c['title'].split('#')))).strip().upper()[:28]
         if not hook_txt:
             hook_txt = "WAIT FOR THE END!"
             
+        fade_start = max(1.0, clip_dur - 1.0)
         vf = (
             f"split[bg][fg];"
             f"[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:10[bg_blur];"
             f"[fg]scale=1130:-2,crop=1080:ih,eq=contrast=1.06:saturation=1.15[fg_edit];"
             f"[bg_blur][fg_edit]overlay=(W-w)/2:(H-h)/2,"
             f"drawtext=text='{hook_txt}':fontcolor=white:fontsize=46:box=1:boxcolor=red@0.85:boxborderw=14:x=(w-text_w)/2:y=220,"
-            f"drawtext=text='{CHANNEL_WATERMARK}':fontcolor=white@0.70:fontsize=28:x=(w-text_w)/2:y=h-120,"
-            f"subtitles={srt}:force_style='Fontname=Arial,FontSize=13,Bold=1,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=240'"
+            f"drawtext=text='{CHANNEL_WATERMARK}':fontcolor=white@0.75:fontsize=26:x=(w-text_w)/2:y=h-250,"
+            f"subtitles={srt}:force_style='Fontname=Arial,FontSize=13,Bold=1,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=45'"
         )
         subprocess.run([
-            "ffmpeg", "-y", "-i", raw_seg, "-t", "30",
-            "-vf", vf, "-af", "afade=t=out:st=29:d=1",
+            "ffmpeg", "-y", "-i", raw_seg, "-t", str(clip_dur),
+            "-vf", vf, "-af", f"afade=t=out:st={fade_start}:d=1",
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-c:a", "aac", out
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        
-        send_tg_video(out, f"Clip #{i}\n{c['title']}\n\n{c['caption']}")
+                send_tg_video(out, f"Clip #{i} ({clip_dur}s)\n{c['title']}\n\n{c['caption']}")
         sent_count += 1
 
     elapsed = round((time.time() - start_clock) / 60, 1)
-    print(f"Total {sent_count} clips {elapsed} minute me bhej di gayi!", flush=True)
-
     if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
         upd_url = tg_api("getUpdates")
         old_data = requests.get(upd_url).json()
@@ -454,11 +456,9 @@ if __name__ == "__main__":
         
         send_tg_text(
             f"Saari {sent_count} clips ({elapsed} minute me) bhej di gayi hain!\n\n"
-            "Agle 30 minute mein un clips ke NUMBER likh kar reply karein jinhe YouTube par upload karna hai (jaise: 2, 5, 14)\n"
-            "Ya baad mein upload karne ke liye GitHub Actions mein '2. Upload Selected Clips' chala lein."
+            "Agle 30 minute mein un clips ke NUMBER likh kar reply karein jinhe YouTube aur Instagram par upload karna hai (jaise: 2, 5, 14)"
         )
         
-        print("6. Telegram par aapke selection reply ka intezaar (30 minute)...", flush=True)
         deadline = time.time() + 1800
         while time.time() < deadline:
             resp = requests.get(upd_url, params={"offset": offset, "timeout": 20}).json()
@@ -468,7 +468,7 @@ if __name__ == "__main__":
                 if str(msg.get("chat", {}).get("id")) == str(TELEGRAM_CHAT_ID):
                     txt = msg.get("text", "")
                     nums = [int(n) for n in re.findall(r"\d+", txt)]
-                if nums:
+                    if nums:
                         send_tg_text(f"Clips {nums} YouTube aur Instagram par upload ki ja rahi hain...")
                         from upload import get_ig_client
                         ig_cl = get_ig_client()
@@ -476,12 +476,7 @@ if __name__ == "__main__":
                             clip_obj = next((x for x in clips if x["id"] == n), None)
                             path = f"final_clips/{clip_obj['file']}" if clip_obj else ""
                             if clip_obj and os.path.exists(path):
-                                vid_id = upload_to_youtube(
-                                    path,
-                                    clip_obj["title"],
-                                    clip_obj["caption"],
-                                    clip_obj.get("tags")
-                                )
+                                vid_id = upload_to_youtube(path, clip_obj["title"], clip_obj["caption"], clip_obj.get("tags"))
                                 yt_host = "youtube" + ".com"
                                 yt_link = "https://" + yt_host + f"/shorts/{vid_id}"
                                 
@@ -504,3 +499,4 @@ if __name__ == "__main__":
                                 send_tg_text(msg)
                         send_tg_text("Aapki saari selected clips YouTube aur Instagram par upload ho gayi hain!")
                         exit(0)
+            time.sleep(3)
