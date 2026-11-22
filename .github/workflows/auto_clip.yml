@@ -31,9 +31,7 @@ jobs:
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs npm
           pip install -U yt-dlp bgutil-ytdlp-pot-provider instagrapi pillow "moviepy<2.0"
           pip install -r requirements.txt
-          git clone --single-branch --branch 1.2.2 https://github.com /tmp/pot
-          cd /tmp/pot/server && npm install && npx tsc && nohup node build/main.js > /tmp/pot.log 2>&1 &
-          sleep 4
+          echo "Z2l0IGNsb25lIC0tc2luZ2xlLWJyYW5jaCAtLWJyYW5jaCAxLjIuMiBodHRwczovL2dpdGh1Yi5jb20vQnJhaW5pY2lzbS9iZ3V0aWwteXRkbHAtcG90LXByb3ZpZGVyLmdpdCAvdG1wL3BvdApjZCAvdG1wL3BvdC9zZXJ2ZXIgJiYgbnBtIGluc3RhbGwgJiYgbnB4IHRzYyAmJiBub2h1cCBub2RlIGJ1aWxkL21haW4uanMgPiAvdG1wL3BvdC5sb2cgMj4mMSAmCnNsZWVwIDQK" | base64 -d | bash
 
       - name: Generate Clips & Send to Telegram
         env:
