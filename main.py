@@ -445,7 +445,7 @@ if __name__ == "__main__":
             "-vf", vf, "-af", f"afade=t=out:st={fade_start}:d=1",
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-c:a", "aac", out
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-                send_tg_video(out, f"Clip #{i} ({clip_dur}s)\n{c['title']}\n\n{c['caption']}")
+        send_tg_video(out, f"Clip #{i} ({clip_dur}s)\n{c['title']}\n\n{c['caption']}")
         sent_count += 1
 
     elapsed = round((time.time() - start_clock) / 60, 1)
