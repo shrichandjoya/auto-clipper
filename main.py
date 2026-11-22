@@ -5,6 +5,7 @@ import json
 import time
 import requests
 import subprocess
+import cv2
 from yt_dlp import YoutubeDL
 from google import genai
 from google.genai import types
@@ -348,110 +349,52 @@ def format_time(sec):
     ms = int((sec - int(sec)) * 1000)
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
-def build_all_srts_in_one_batch(clips, words):
-    print("3. Sabhi clips ke captions Hinglish me saaf kiye ja rahe hain...", flush=True)
-    all_chunks_by_clip = {}
-    batch_for_ai = []
-    
-    for c in clips:
-        cid = c['id']
-        start, end = c['start'], c['end']
-        c_words = [w for w in words if w['start'] >= start and w['end'] <= end]
-        chunks = []
-        for idx, i in enumerate(range(0, len(c_words), 3), 1):
-            chunk = c_words[i:i+3]
-            if not chunk:
+def detect_streamer_facecam(video_path, is_live_stream):
+    if not is_live_stream:
+        return None
+    try:
+        cap = cv2.VideoCapture(video_path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 0:
+            cap.release()
+            return None
+        face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        hits = []
+        w, h = 0, 0
+        for ratio in [0.15, 0.35, 0.55, 0.75, 0.90]:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(total_frames * ratio))
+            ret, frame = cap.read()
+            if not ret or frame is None:
                 continue
-            s_t = format_time(next(iter(chunk))['start'] - start)
-            e_t = format_time(chunk[-1]['end'] - start)
-            raw_txt = ' '.join(w['word'] for w in chunk)
-            uid = f"{cid}_{idx}"
-            chunks.append({"uid": uid, "id": idx, "start": s_t, "end": e_t, "text": raw_txt})
-            batch_for_ai.append({"uid": uid, "text": raw_txt})
-        all_chunks_by_clip[cid] = chunks
+            h, w, _ = frame.shape
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5, minSize=(45, 45))
+            for (fx, fy, fw, fh) in faces:
+                cx, cy = fx + fw / 2.0, fy + fh / 2.0
+                # Sirf kinare (Left/Right side) wale facecam ko hi pakdein, beech ke game character ko nahi
+                if (cx < w * 0.32 or cx > w * 0.68) and fw < w * 0.35:
+                    hits.append((cx, cy, fw, fh))
+        cap.release()
+        if len(hits) >= 2 and w > 0 and h > 0:
+            avg_cx = sum(x[0] for x in hits) / len(hits)
+            avg_cy = sum(x[1] for x in hits) / len(hits)
+            avg_fw = sum(x[2] for x in hits) / len(hits)
+            box_w = int(min(w * 0.42, max(avg_fw * 3.2, w * 0.24)))
+            box_h = int(box_w * 0.72)
+            x1 = int(max(0, min(w - box_w, avg_cx - box_w / 2)))
+            y1 = int(max(0, min(h - box_h, avg_cy - box_h * 0.45)))
+            return (x1, y1, box_w, box_h)
+    except Exception as e:
+        print(f"Facecam detect warning: {e}", flush=True)
+    return None
 
-    if batch_for_ai:
-        try:
-            clean_prompt = f"""
-            Neeche diye gaye video captions mein Hindi aur English mix hai.
-            Inhe sudhar kar chhote aur readable Hinglish (sirf English alphabet A-Z mein) likho.
-            'uid' bilkul mat badalna. Sirf valid JSON array do:
-            {json.dumps(batch_for_ai[:350], ensure_ascii=False)}
-            """
-            cleaned = ask_gemini_json(clean_prompt)
-            clean_map = {item["uid"]: item["text"] for item in cleaned if "uid" in item and "text" in item}
-            for cid, chunks in all_chunks_by_clip.items():
-                for ch in chunks:
-                    if ch["uid"] in clean_map:
-                        ch["text"] = clean_map[ch["uid"]]
-        except Exception as e:
-            print(f"   -> Caption batch polish warning: {e}", flush=True)
-
-    for cid, chunks in all_chunks_by_clip.items():
-        with open(f"c_{cid}.srt", "w", encoding="utf-8") as f:
-            for ch in chunks:
-                f.write(f"{ch['id']}\n{ch['start']} --> {ch['end']}\n{ch['text'].upper()}\n\n")
-
-def download_all_sections_fast(clean_url, clips):
-    print("4. Sabhi clips Multi-Layer Shield se download ho rahi hain...", flush=True)
-    cmd = [
-        "yt-dlp",
-        "-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best",
-        "-o", "raw_%(section_number)s.mp4"
-    ]
-    for c in clips:
-        cmd.extend(["--download-sections", f"*{c['start']}-{c['end']}"])
-    cmd.append(clean_url)
-    subprocess.run(cmd)
-    
-    piped_vid_url = None
-    for c in clips:
-        i = c['id']
-        raw_seg = f"raw_{i}.mp4"
-        if not os.path.exists(raw_seg) or os.path.getsize(raw_seg) < 10000:
-            cmd_fb = [
-                "yt-dlp",
-                "-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best",
-                "--extractor-args", "youtube:player_client=tv_simply,android_vr,ios,mweb",
-                "--download-sections", f"*{c['start']}-{c['end']}",
-                "-o", raw_seg, clean_url
-            ]
-            subprocess.run(cmd_fb)
-
-        if not os.path.exists(raw_seg) or os.path.getsize(raw_seg) < 10000:
-            if not piped_vid_url:
-                vid = extract_video_id(clean_url)
-                if vid:
-                    _, piped_vid_url, _, _ = get_piped_fallback_streams(vid)
-            if piped_vid_url:
-                dur = round(c['end'] - c['start'], 2)
-                subprocess.run([
-                    "ffmpeg", "-y", "-ss", str(c['start']), "-i", piped_vid_url,
-                    "-t", str(dur), "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", raw_seg
-                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-def upload_to_youtube(file_path, title, description, tags=None):
-    creds = Credentials.from_authorized_user_info(json.loads(YT_TOKEN_JSON))
-    youtube = build("youtube", "v3", credentials=creds)
-    body = {
-        "snippet": {
-            "title": title[:95],
-            "description": description,
-            "tags": tags or ["shorts", "gaming", "ursvibe01"],
-            "categoryId": "20"
-        },
-        "status": {
-            "privacyStatus": "public",
-            "selfDeclaredMadeForKids": False
-        }
-    }
-    media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
-    res = youtube.videos().insert(part="snippet,status", body=body, media_body=media).execute()
-    return res['id']
 if __name__ == "__main__":
     start_clock = time.time()
     clean_url = get_clean_url(VIDEO_URL)
+    is_live_stream = ("/live/" in VIDEO_URL)
     creator_name, stream_title = get_stream_info(clean_url)
+    if any(k in stream_title.lower() for k in ["live", "stream", "playing", "gta", "bgmi", "valorant", "minecraft"]):
+        is_live_stream = True
     send_tg_text(f"Creator: {creator_name}\nStream: {stream_title}\n\nComplete-Scene clips tayyar hokar aa jayengi!")
     
     text, words, sentences = fetch_full_stream_captions(clean_url)
@@ -472,20 +415,33 @@ if __name__ == "__main__":
         if not os.path.exists(raw_seg) or os.path.getsize(raw_seg) < 10000:
             continue
             
-        print(f"5.{i} Clip #{i} ({clip_dur}s) edit aur Telegram par send ho rahi hai...", flush=True)
-        hook_txt = re.sub(r'[^A-Za-z0-9 !?]', '', next(iter(c['title'].split('#')))).strip().upper()[:28]
-        if not hook_txt:
-            hook_txt = "WAIT FOR THE END!"
-            
+        cam_box = detect_streamer_facecam(raw_seg, is_live_stream)
         fade_start = max(1.0, clip_dur - 1.0)
-        vf = (
-            f"split[bg][fg];"
-            f"[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:10[bg_blur];"
-            f"[fg]scale=1130:-2,crop=1080:ih,eq=contrast=1.06:saturation=1.15[fg_edit];"
-            f"[bg_blur][fg_edit]overlay=(W-w)/2:(H-h)/2,"
-            f"drawtext=text='{hook_txt}':fontcolor=white:fontsize=46:box=1:boxcolor=red@0.85:boxborderw=14:x=(w-text_w)/2:y=220,"
-            f"drawtext=text='{CHANNEL_WATERMARK}':fontcolor=white@0.75:fontsize=26:x=(w-text_w)/2:y=h-250"
-        )
+        
+        if cam_box:
+            fx, fy, fw, fh = cam_box
+            print(f"5.{i} Clip #{i} ({clip_dur}s) Split-Screen (Upar Streamer + Niche Gameplay) ban rahi hai...", flush=True)
+            vf = (
+                f"split[cam][game];"
+                f"[cam]crop={fw}:{fh}:{fx}:{fy},scale=1080:768:force_original_aspect_ratio=increase,crop=1080:768[top];"
+                f"[game]scale=-2:1152,crop=1080:1152[bottom];"
+                f"[top][bottom]vstack=inputs=2,"
+                f"drawtext=text='{CHANNEL_WATERMARK}':fontcolor=white@0.8:fontsize=26:x=(w-text_w)/2:y=745"
+            )
+        else:
+            print(f"5.{i} Clip #{i} ({clip_dur}s) Normal Video Layout ban rahi hai...", flush=True)
+            hook_txt = re.sub(r'[^A-Za-z0-9 !?]', '', next(iter(c['title'].split('#')))).strip().upper()[:28]
+            if not hook_txt:
+                hook_txt = "WAIT FOR THE END!"
+            vf = (
+                f"split[bg][fg];"
+                f"[bg]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:10[bg_blur];"
+                f"[fg]scale=1130:-2,crop=1080:ih,eq=contrast=1.06:saturation=1.15[fg_edit];"
+                f"[bg_blur][fg_edit]overlay=(W-w)/2:(H-h)/2,"
+                f"drawtext=text='{hook_txt}':fontcolor=white:fontsize=46:box=1:boxcolor=red@0.85:boxborderw=14:x=(w-text_w)/2:y=220,"
+                f"drawtext=text='{CHANNEL_WATERMARK}':fontcolor=white@0.75:fontsize=26:x=(w-text_w)/2:y=h-250"
+            )
+            
         subprocess.run([
             "ffmpeg", "-y", "-i", raw_seg, "-t", str(clip_dur),
             "-vf", vf, "-af", f"afade=t=out:st={fade_start}:d=1",
