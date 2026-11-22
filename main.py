@@ -404,7 +404,6 @@ if __name__ == "__main__":
         json.dump(clips, f, ensure_ascii=False, indent=2)
         
     download_all_sections_fast(clean_url, clips)
-    
     sent_count = 0
     for c in clips:
         i = c['id']
