@@ -460,7 +460,6 @@ if __name__ == "__main__":
     with open("final_clips/clips_meta.json", "w", encoding="utf-8") as f:
         json.dump(clips, f, ensure_ascii=False, indent=2)
         
-    build_all_srts_in_one_batch(clips, words)
     download_all_sections_fast(clean_url, clips)
     
     sent_count = 0
@@ -468,7 +467,6 @@ if __name__ == "__main__":
         i = c['id']
         clip_dur = round(c['end'] - c['start'], 2)
         raw_seg = f"raw_{i}.mp4"
-        srt = f"c_{i}.srt"
         out = f"final_clips/clip_{i}.mp4"
         
         if not os.path.exists(raw_seg) or os.path.getsize(raw_seg) < 10000:
@@ -486,8 +484,7 @@ if __name__ == "__main__":
             f"[fg]scale=1130:-2,crop=1080:ih,eq=contrast=1.06:saturation=1.15[fg_edit];"
             f"[bg_blur][fg_edit]overlay=(W-w)/2:(H-h)/2,"
             f"drawtext=text='{hook_txt}':fontcolor=white:fontsize=46:box=1:boxcolor=red@0.85:boxborderw=14:x=(w-text_w)/2:y=220,"
-            f"drawtext=text='{CHANNEL_WATERMARK}':fontcolor=white@0.75:fontsize=26:x=(w-text_w)/2:y=h-250,"
-            f"subtitles={srt}:force_style='Fontname=Arial,FontSize=13,Bold=1,PrimaryColour=&H0000FFFF,OutlineColour=&H00000000,Outline=2,Alignment=2,MarginV=45'"
+            f"drawtext=text='{CHANNEL_WATERMARK}':fontcolor=white@0.75:fontsize=26:x=(w-text_w)/2:y=h-250"
         )
         subprocess.run([
             "ffmpeg", "-y", "-i", raw_seg, "-t", str(clip_dur),
