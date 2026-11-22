@@ -29,7 +29,7 @@ jobs:
       - name: Layer 1 Shield - Direct YouTube PO-Token & Deno Engine
         run: |
           sudo apt-get update && sudo apt-get install -y ffmpeg nodejs npm
-          pip install -U deno "yt-dlp[default]" yt-dlp-ejs bgutil-ytdlp-pot-provider instagrapi pillow "moviepy<2.0"
+          pip install -U deno "yt-dlp[default]" yt-dlp-ejs bgutil-ytdlp-pot-provider instagrapi pillow "moviepy<2.0" opencv-python-headless
           pip install -r requirements.txt
           echo "Z2l0IGNsb25lIC0tc2luZ2xlLWJyYW5jaCAtLWJyYW5jaCAxLjIuMiBodHRwczovL2dpdGh1Yi5jb20vQnJhaW5pY2lzbS9iZ3V0aWwteXRkbHAtcG90LXByb3ZpZGVyLmdpdCAvdG1wL3BvdApjZCAvdG1wL3BvdC9zZXJ2ZXIgJiYgbnBtIGluc3RhbGwgJiYgbnB4IHRzYyAmJiBub2h1cCBub2RlIGJ1aWxkL21haW4uanMgPiAvdG1wL3BvdC5sb2cgMj4mMSAmCnNsZWVwIDQK" | base64 -d | bash
 
