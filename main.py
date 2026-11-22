@@ -14,7 +14,6 @@ from googleapiclient.http import MediaFileUpload
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 YT_TOKEN_JSON = os.environ.get("YT_TOKEN_JSON")
-YT_COOKIES = os.environ.get("YT_COOKIES")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 VIDEO_URL = os.environ.get("VIDEO_URL")
@@ -23,10 +22,6 @@ CHANNEL_WATERMARK = "@ursvibe01"
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 os.makedirs("final_clips", exist_ok=True)
-
-if YT_COOKIES:
-    with open("cookies.txt", "w", encoding="utf-8") as f:
-        f.write(YT_COOKIES.strip() + "\n")
 
 def tg_api(method):
     host = "api" + ".telegram" + ".org"
@@ -54,37 +49,56 @@ def send_tg_video(video_path, caption):
     except Exception as e:
         print(f"Telegram video warning: {e}", flush=True)
 
-def get_clean_url(url):
+def extract_video_id(url):
     match = re.search(r"(?:v=|/live/|youtu\.be/|/shorts/)([a-zA-Z0-9_-]{11})", url)
-    if match:
+    return match.group(1) if match else None
+
+def get_clean_url(url):
+    vid = extract_video_id(url)
+    if vid:
         host = "www" + ".youtube" + ".com"
-        return "https://" + host + "/watch?v=" + match.group(1)
+        return "https://" + host + "/watch?v=" + vid
     return url
 
-def get_stream_info(url):
-    ydl_opts = {'quiet': True, 'skip_download': True}
-    if os.path.exists("cookies.txt"):
-        ydl_opts['cookiefile'] = 'cookies.txt'
-    try:
-        with YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            creator = info.get("uploader") or info.get("channel") or "Original Creator"
-            title = info.get("title") or "Live Stream"
-            return creator, title
-    except Exception:
+def get_piped_fallback_streams(video_id):
+    # Layer 4 Backup: Public Piped API instances agar YouTube direct block kare
+    instances = [
+        "https://kavin.rocks",
+        "https://tokhmi.xyz",
+        "https://moomoo.me",
+        "https://garudalinux.org"
+    ]
+    for inst in instances:
         try:
-            ydl_fb = {
-                'quiet': True,
-                'skip_download': True,
-                'extractor_args': {'youtube': {'player_client': ['tv_simply', 'android_vr']}}
-            }
-            with YoutubeDL(ydl_fb) as ydl:
-                info = ydl.extract_info(url, download=False)
-                creator = info.get("uploader") or info.get("channel") or "Original Creator"
-                title = info.get("title") or "Live Stream"
-                return creator, title
+            r = requests.get(f"{inst}/streams/{video_id}", timeout=15)
+            if r.status_code == 200:
+                data = r.json()
+                audio_url = data.get("audioStreams", [{}])[0].get("url")
+                video_streams = [v for v in data.get("videoStreams", []) if not v.get("videoOnly")]
+                video_url = video_streams[0].get("url") if video_streams else None
+                if audio_url:
+                    return audio_url, video_url, data.get("uploader"), data.get("title")
         except Exception:
-            return "Original Creator", "Live Stream"
+            continue
+    return None, None, None, None
+
+def get_stream_info(url):
+    for opts in [
+        {'quiet': True, 'skip_download': True},
+        {'quiet': True, 'skip_download': True, 'extractor_args': {'youtube': {'player_client': ['tv_simply', 'android_vr', 'ios']}}}
+    ]:
+        try:
+            with YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                return info.get("uploader") or info.get("channel") or "Original Creator", info.get("title") or "Live Stream"
+        except Exception:
+            continue
+    vid = extract_video_id(url)
+    if vid:
+        _, _, up, tit = get_piped_fallback_streams(vid)
+        if up or tit:
+            return up or "Original Creator", tit or "Live Stream"
+    return "Original Creator", "Live Stream"
 
 def get_all_flash_models():
     available = []
@@ -116,27 +130,30 @@ def ask_gemini_json(prompt):
             time.sleep(2)
     raise RuntimeError("Sabhi Gemini models abhi busy hain.")
 def fetch_full_stream_captions(url):
-    print("1. Puri stream ke captions nikale ja rahe hain (Cookie-Free Permanent Mode)...", flush=True)
+    print("1. 4-Layer Fail-Safe Engine se stream captions nikale ja rahe hain...", flush=True)
     for old_f in glob.glob("sub_data*"):
         os.remove(old_f)
 
-    ydl_opts = {
-        'skip_download': True,
-        'writeautomaticsub': True,
-        'subtitleslangs': ['hi', 'en'],
-        'subtitlesformat': 'json3',
-        'ignoreerrors': True,
-        'extractor_args': {'youtube': {'player_client': ['tv_simply', 'android_vr', 'ios']}},
-        'outtmpl': 'sub_data',
-        'overwrites': True,
-        'quiet': True
-    }
-
-    try:
-        with YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-    except Exception:
-        pass
+    # Layer 1 & Layer 3: PO-Token + Multi-Client Subtitles Try
+    sub_strategies = [
+        {
+            'skip_download': True, 'writeautomaticsub': True, 'subtitleslangs': ['hi', 'en'],
+            'subtitlesformat': 'json3', 'ignoreerrors': True, 'outtmpl': 'sub_data', 'overwrites': True, 'quiet': True
+        },
+        {
+            'skip_download': True, 'writeautomaticsub': True, 'subtitleslangs': ['hi', 'en'],
+            'subtitlesformat': 'json3', 'ignoreerrors': True, 'outtmpl': 'sub_data', 'overwrites': True, 'quiet': True,
+            'extractor_args': {'youtube': {'player_client': ['tv_simply', 'android_vr', 'ios', 'mweb']}}
+        }
+    ]
+    for opts in sub_strategies:
+        try:
+            with YoutubeDL(opts) as ydl:
+                ydl.download([url])
+        except Exception:
+            pass
+        if glob.glob("sub_data*.json3"):
+            break
 
     sub_files = glob.glob("sub_data*.json3")
     if sub_files:
@@ -170,18 +187,40 @@ def fetch_full_stream_captions(url):
             print(f"   -> YouTube captions mil gaye! Total {len(sentences)} lines.", flush=True)
             return "\n".join(transcript), words, sentences
 
-    print("   -> Audio Fast-Whisper Backup chalu ho raha hai (Cookie-Free)...", flush=True)
+    print("   -> Audio Multi-Layer Backup chalu ho raha hai...", flush=True)
     from faster_whisper import WhisperModel
 
-    ydl_aud = {
-        'format': 'worstaudio[ext=m4a]/worstaudio/bestaudio',
-        'extractor_args': {'youtube': {'player_client': ['tv_simply', 'android_vr', 'ios']}},
-        'outtmpl': 'audio.m4a',
-        'overwrites': True,
-        'quiet': True
-    }
-    with YoutubeDL(ydl_aud) as ydl:
-        ydl.download([url])
+    audio_downloaded = False
+    aud_strategies = [
+        {'format': 'worstaudio[ext=m4a]/worstaudio/bestaudio', 'outtmpl': 'audio.m4a', 'overwrites': True, 'quiet': True},
+        {'format': 'worstaudio[ext=m4a]/worstaudio/bestaudio', 'outtmpl': 'audio.m4a', 'overwrites': True, 'quiet': True,
+         'extractor_args': {'youtube': {'player_client': ['tv_simply', 'android_vr', 'ios', 'mweb']}}},
+        {'format': 'bestaudio/best', 'outtmpl': 'audio.m4a', 'overwrites': True, 'quiet': True,
+         'extractor_args': {'youtube': {'player_client': ['android_testsuite', 'web_embedded']}}}
+    ]
+    for a_opts in aud_strategies:
+        try:
+            with YoutubeDL(a_opts) as ydl:
+                ydl.download([url])
+            if os.path.exists("audio.m4a") and os.path.getsize("audio.m4a") > 10000:
+                audio_downloaded = True
+                break
+        except Exception:
+            continue
+
+    # Layer 4 Fallback: Piped Mirror se direct audio stream download
+    if not audio_downloaded:
+        vid = extract_video_id(url)
+        if vid:
+            print("   -> Layer 4 Piped Mirror Fallback se audio li ja rahi hai...", flush=True)
+            p_aud, _, _, _ = get_piped_fallback_streams(vid)
+            if p_aud:
+                subprocess.run(["ffmpeg", "-y", "-i", p_aud, "-c:a", "aac", "audio.m4a"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if os.path.exists("audio.m4a") and os.path.getsize("audio.m4a") > 10000:
+                    audio_downloaded = True
+
+    if not audio_downloaded:
+        raise RuntimeError("Sabhi 4 layers try karne ke baad bhi audio nahi mil saki.")
 
     dur_out = subprocess.check_output([
         "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", "audio.m4a"
@@ -303,7 +342,6 @@ def get_best_16_clips_full_stream(transcript_text, sentences, creator_name, stre
             break
     print(f"   -> Total {len(final_clips)} complete-scene clips select ho gayi!", flush=True)
     return final_clips
-
 def format_time(sec):
     sec = max(0.0, sec)
     h, m, s = int(sec // 3600), int((sec % 3600) // 60), int(sec % 60)
@@ -355,11 +393,10 @@ def build_all_srts_in_one_batch(clips, words):
                 f.write(f"{ch['id']}\n{ch['start']} --> {ch['end']}\n{ch['text'].upper()}\n\n")
 
 def download_all_sections_fast(clean_url, clips):
-    print("4. Sabhi clips download ho rahi hain (Cookie-Free Mode)...", flush=True)
+    print("4. Sabhi clips Multi-Layer Shield se download ho rahi hain...", flush=True)
     cmd = [
         "yt-dlp",
         "-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best",
-        "--extractor-args", "youtube:player_client=tv_simply,android_vr,ios",
         "-o", "raw_%(section_number)s.mp4"
     ]
     for c in clips:
@@ -367,6 +404,7 @@ def download_all_sections_fast(clean_url, clips):
     cmd.append(clean_url)
     subprocess.run(cmd)
     
+    piped_vid_url = None
     for c in clips:
         i = c['id']
         raw_seg = f"raw_{i}.mp4"
@@ -374,11 +412,23 @@ def download_all_sections_fast(clean_url, clips):
             cmd_fb = [
                 "yt-dlp",
                 "-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best",
-                "--extractor-args", "youtube:player_client=tv_simply,android_vr,ios",
+                "--extractor-args", "youtube:player_client=tv_simply,android_vr,ios,mweb",
                 "--download-sections", f"*{c['start']}-{c['end']}",
                 "-o", raw_seg, clean_url
             ]
             subprocess.run(cmd_fb)
+
+        if not os.path.exists(raw_seg) or os.path.getsize(raw_seg) < 10000:
+            if not piped_vid_url:
+                vid = extract_video_id(clean_url)
+                if vid:
+                    _, piped_vid_url, _, _ = get_piped_fallback_streams(vid)
+            if piped_vid_url:
+                dur = round(c['end'] - c['start'], 2)
+                subprocess.run([
+                    "ffmpeg", "-y", "-ss", str(c['start']), "-i", piped_vid_url,
+                    "-t", str(dur), "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", raw_seg
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 def upload_to_youtube(file_path, title, description, tags=None):
     creds = Credentials.from_authorized_user_info(json.loads(YT_TOKEN_JSON))
@@ -398,7 +448,6 @@ def upload_to_youtube(file_path, title, description, tags=None):
     media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
     res = youtube.videos().insert(part="snippet,status", body=body, media_body=media).execute()
     return res['id']
-
 if __name__ == "__main__":
     start_clock = time.time()
     clean_url = get_clean_url(VIDEO_URL)
@@ -445,6 +494,7 @@ if __name__ == "__main__":
             "-vf", vf, "-af", f"afade=t=out:st={fade_start}:d=1",
             "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-c:a", "aac", out
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        
         send_tg_video(out, f"Clip #{i} ({clip_dur}s)\n{c['title']}\n\n{c['caption']}")
         sent_count += 1
 
