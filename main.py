@@ -62,21 +62,29 @@ def get_clean_url(url):
     return url
 
 def get_piped_fallback_streams(video_id):
-    # Layer 4 Backup: Public Piped API instances agar YouTube direct block kare
-    instances = [
-        "https://kavin.rocks",
-        "https://tokhmi.xyz",
-        "https://moomoo.me",
-        "https://garudalinux.org"
-    ]
-    for inst in instances:
+    # Layer 4: Cobalt API Backup (Bina cookie ke direct stream)
+    try:
+        yt_u = "https://www." + "youtube" + ".com/watch?v=" + video_id
+        c_host = "api." + "cobalt" + ".tools"
+        r_aud = requests.post(f"https://{c_host}/", json={"url": yt_u, "downloadMode": "audio"}, headers={"Accept": "application/json"}, timeout=15)
+        r_vid = requests.post(f"https://{c_host}/", json={"url": yt_u, "videoQuality": "720"}, headers={"Accept": "application/json"}, timeout=15)
+        aud_u = r_aud.json().get("url") if r_aud.status_code == 200 else None
+        vid_u = r_vid.json().get("url") if r_vid.status_code == 200 else None
+        if aud_u:
+            return aud_u, vid_u, None, None
+    except Exception:
+        pass
+
+    # Layer 5: Public Piped Mirror Instances
+    domains = ["pipedapi.kavin.rocks", "pipedapi.tokhmi.xyz", "pipedapi.moomoo.me", "piped-api.garudalinux.org"]
+    for d in domains:
         try:
-            r = requests.get(f"{inst}/streams/{video_id}", timeout=15)
+            r = requests.get(f"https://{d}/streams/{video_id}", timeout=15)
             if r.status_code == 200:
                 data = r.json()
-                audio_url = data.get("audioStreams", [{}])[0].get("url")
+                audio_url = data.get("audioStreams", [{}]).get("url")
                 video_streams = [v for v in data.get("videoStreams", []) if not v.get("videoOnly")]
-                video_url = video_streams[0].get("url") if video_streams else None
+                video_url = video_streams.get("url") if video_streams else None
                 if audio_url:
                     return audio_url, video_url, data.get("uploader"), data.get("title")
         except Exception:
