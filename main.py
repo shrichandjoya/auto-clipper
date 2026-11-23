@@ -348,7 +348,63 @@ def format_time(sec):
     h, m, s = int(sec // 3600), int((sec % 3600) // 60), int(sec % 60)
     ms = int((sec - int(sec)) * 1000)
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
+def download_all_sections_fast(clean_url, clips):
+    print("4. Sabhi clips Multi-Layer Shield se download ho rahi hain...", flush=True)
+    cmd = [
+        "yt-dlp",
+        "-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best",
+        "-o", "raw_%(section_number)s.mp4"
+    ]
+    for c in clips:
+        cmd.extend(["--download-sections", f"*{c['start']}-{c['end']}"])
+    cmd.append(clean_url)
+    subprocess.run(cmd)
+    
+    piped_vid_url = None
+    for c in clips:
+        i = c['id']
+        raw_seg = f"raw_{i}.mp4"
+        if not os.path.exists(raw_seg) or os.path.getsize(raw_seg) < 10000:
+            cmd_fb = [
+                "yt-dlp",
+                "-f", "best[height<=720][ext=mp4]/bestvideo[height<=720]+bestaudio/best",
+                "--extractor-args", "youtube:player_client=tv_simply,android_vr,ios,mweb",
+                "--download-sections", f"*{c['start']}-{c['end']}",
+                "-o", raw_seg, clean_url
+            ]
+            subprocess.run(cmd_fb)
 
+        if not os.path.exists(raw_seg) or os.path.getsize(raw_seg) < 10000:
+            if not piped_vid_url:
+                vid = extract_video_id(clean_url)
+                if vid:
+                    _, piped_vid_url, _, _ = get_piped_fallback_streams(vid)
+            if piped_vid_url:
+                dur = round(c['end'] - c['start'], 2)
+                subprocess.run([
+                    "ffmpeg", "-y", "-ss", str(c['start']), "-i", piped_vid_url,
+                    "-t", str(dur), "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", raw_seg
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+def upload_to_youtube(file_path, title, description, tags=None):
+    creds = Credentials.from_authorized_user_info(json.loads(YT_TOKEN_JSON))
+    youtube = build("youtube", "v3", credentials=creds)
+    body = {
+        "snippet": {
+            "title": title[:95],
+            "description": description,
+            "tags": tags or ["shorts", "gaming", "ursvibe01"],
+            "categoryId": "20"
+        },
+        "status": {
+            "privacyStatus": "public",
+            "selfDeclaredMadeForKids": False
+        }
+    }
+    media = MediaFileUpload(file_path, chunksize=-1, resumable=True)
+    res = youtube.videos().insert(part="snippet,status", body=body, media_body=media).execute()
+    return res['id']
+    
 def detect_streamer_facecam(video_path, is_live_stream):
     if not is_live_stream:
         return None
