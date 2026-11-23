@@ -413,9 +413,7 @@ def upload_to_youtube(file_path, title, description, tags=None):
     res = youtube.videos().insert(part="snippet,status", body=body, media_body=media).execute()
     return res['id']
     
-def detect_streamer_facecam(video_path, is_live_stream):
-    if not is_live_stream:
-        return None
+def detect_streamer_facecam(video_path):
     try:
         cap = cv2.VideoCapture(video_path)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -423,30 +421,34 @@ def detect_streamer_facecam(video_path, is_live_stream):
             cap.release()
             return None
         face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        profile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
         hits = []
         w, h = 0, 0
-        for ratio in [0.15, 0.35, 0.55, 0.75, 0.90]:
+        for ratio in [0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95]:
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(total_frames * ratio))
             ret, frame = cap.read()
             if not ret or frame is None:
                 continue
             h, w, _ = frame.shape
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5, minSize=(45, 45))
+            faces = list(face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(28, 28)))
+            if not faces:
+                faces = list(profile_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(28, 28)))
             for (fx, fy, fw, fh) in faces:
                 cx, cy = fx + fw / 2.0, fy + fh / 2.0
-                # Sirf kinare (Left/Right side) wale facecam ko hi pakdein, beech ke game character ko nahi
-                if (cx < w * 0.32 or cx > w * 0.68) and fw < w * 0.35:
+                # Baayein (Left < 35%) ya Daayein (Right > 65%) kinare wale facecam ko pakdein
+                if (cx < w * 0.35 or cx > w * 0.65) and fw < w * 0.32:
                     hits.append((cx, cy, fw, fh))
         cap.release()
-        if len(hits) >= 2 and w > 0 and h > 0:
-            avg_cx = sum(x[0] for x in hits) / len(hits)
-            avg_cy = sum(x[1] for x in hits) / len(hits)
-            avg_fw = sum(x[2] for x in hits) / len(hits)
-            box_w = int(min(w * 0.42, max(avg_fw * 3.2, w * 0.24)))
+        if len(hits) >= 1 and w > 0 and h > 0:
+            avg_cx = sum(x for x in hits) / len(hits)
+            avg_cy = sum(x for x in hits) / len(hits)
+            avg_fw = sum(x for x in hits) / len(hits)
+            box_w = int(min(w * 0.36, max(avg_fw * 3.0, w * 0.22)))
             box_h = int(box_w * 0.72)
             x1 = int(max(0, min(w - box_w, avg_cx - box_w / 2)))
             y1 = int(max(0, min(h - box_h, avg_cy - box_h * 0.45)))
+            print(f"   -> Facecam mil gaya! Box: x={x1}, y={y1}, w={box_w}, h={box_h}", flush=True)
             return (x1, y1, box_w, box_h)
     except Exception as e:
         print(f"Facecam detect warning: {e}", flush=True)
@@ -478,7 +480,7 @@ if __name__ == "__main__":
         if not os.path.exists(raw_seg) or os.path.getsize(raw_seg) < 10000:
             continue
             
-        cam_box = detect_streamer_facecam(raw_seg, is_live_stream)
+        cam_box = detect_streamer_facecam(raw_seg)
         fade_start = max(1.0, clip_dur - 1.0)
         
         if cam_box:
